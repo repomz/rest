@@ -37,6 +37,7 @@ type table struct {
 	Columns    []column
 	CreateCols []column
 	Endpoints  []endpoint
+	Queries    querySet
 }
 
 type column struct {
@@ -63,20 +64,26 @@ type querySet struct {
 }
 
 type endpoint struct {
-	TableName     string
-	Name          string
-	Method        string
-	Path          string
-	Query         string
-	Result        string
-	Params        []endpointParam
-	BodyParams    []endpointParam
-	NonBodyParams []endpointParam
-	NeedsTime     bool
-	NeedsStrconv  bool
-	NeedsUUID     bool
-	QueryArgType  string
-	QueryArgKind  string
+	TableName      string
+	Name           string
+	Method         string
+	Path           string
+	Query          string
+	Result         string
+	Params         []endpointParam
+	BodyParams     []endpointParam
+	NonBodyParams  []endpointParam
+	NeedsTime      bool
+	NeedsStrconv   bool
+	NeedsUUID      bool
+	QueryArgType   string
+	QueryArgKind   string
+	ReturnType     string
+	ResponseType   string
+	ZeroValue      string
+	SampleReturn   string
+	DomainResponse bool
+	IsExec         bool
 }
 
 type endpointParam struct {
@@ -132,11 +139,11 @@ func Generate(opts Options) error {
 		return fmt.Errorf("no CREATE TABLE statements found in %s", cfg.SchemaDir)
 	}
 
-	methods, err := readQuerierMethods(filepath.Join(opts.OutDir, cfg.DBOut, "querier.go"))
+	queryMeta, err := readQuerierMeta(filepath.Join(opts.OutDir, cfg.DBOut, "querier.go"))
 	if err != nil {
 		return err
 	}
-	queryMeta, err := readQuerierMeta(filepath.Join(opts.OutDir, cfg.DBOut, "querier.go"))
+	paramStructs, err := readSQLCParamStructs(filepath.Join(opts.OutDir, cfg.DBOut))
 	if err != nil {
 		return err
 	}
@@ -144,11 +151,15 @@ func Generate(opts Options) error {
 	if !filepath.IsAbs(httpGenPath) {
 		httpGenPath = filepath.Join(opts.OutDir, httpGenPath)
 	}
-	endpoints, err := readHTTPGenConfig(httpGenPath, queryMeta)
+	configuredEndpoints, err := readHTTPGenConfig(httpGenPath, queryMeta)
 	if err != nil {
 		return err
 	}
+	endpoints := append(autoEndpoints(tables, queryMeta, paramStructs, configuredEndpoints), configuredEndpoints...)
 	attachEndpoints(tables, endpoints)
+	for i := range tables {
+		tables[i].Queries = detectQueries(queryMeta, tables[i])
+	}
 	if err := cleanGeneratedAppLayers(opts.OutDir); err != nil {
 		return err
 	}
@@ -161,15 +172,13 @@ func Generate(opts Options) error {
 	}
 
 	files := map[string]string{
-		"internal/app/common/server/http_error.go":            commonServerErrorTemplate,
-		"internal/app/common/server/http_ok.go":               commonServerOKTemplate,
-		"internal/app/common/slugerrors/errors.go":            slugErrorsTemplate,
-		"internal/app/config/config.go":                       configTemplate,
-		"internal/app/domain/error.go":                        domainErrorTemplate,
-		"internal/app/repository/pgrepo/utils.go":             repoUtilsTemplate,
-		"internal/app/transport/httpserver/sever.go":          httpServerTemplate,
-		"internal/app/transport/httpserver/interfaces.go":     httpServerInterfacesTemplate,
-		"internal/app/transport/httpserver/endpoints_test.go": httpServerEndpointsTestTemplate,
+		"internal/app/common/server/http_error.go":        commonServerErrorTemplate,
+		"internal/app/common/server/http_ok.go":           commonServerOKTemplate,
+		"internal/app/common/slugerrors/errors.go":        slugErrorsTemplate,
+		"internal/app/config/config.go":                   configTemplate,
+		"internal/app/domain/error.go":                    domainErrorTemplate,
+		"internal/app/transport/httpserver/sever.go":      httpServerTemplate,
+		"internal/app/transport/httpserver/interfaces.go": httpServerInterfacesTemplate,
 		"cmd/main.go": appMainTemplate,
 		"Makefile":    makefileTemplate,
 		"init_db.sh":  initDBTemplate,
@@ -184,14 +193,14 @@ func Generate(opts Options) error {
 	for _, tbl := range tables {
 		tableData := data
 		tableData.Table = tbl
-		tableData.Queries = detectQueries(methods, tbl)
+		tableData.Queries = tbl.Queries
 		tableFiles := map[string]string{
-			fmt.Sprintf("internal/app/domain/%s.go", tbl.Singular):                        domainModelTemplate,
-			fmt.Sprintf("internal/app/services/%s.go", tbl.Singular):                      serviceTemplate,
-			fmt.Sprintf("internal/app/repository/pgrepo/%s_repo.go", tbl.Singular):        repoTemplate,
-			fmt.Sprintf("internal/app/transport/httpmodels/%s.go", tbl.Singular):          httpModelsTemplate,
-			fmt.Sprintf("internal/app/transport/httpserver/%s_handlers.go", tbl.Singular): httpHandlersTemplate,
-			fmt.Sprintf("internal/app/transport/httpserver/%s_utils.go", tbl.Singular):    httpUtilsTemplate,
+			fmt.Sprintf("internal/app/domain/%s.go", tbl.Singular):                             domainModelTemplate,
+			fmt.Sprintf("internal/app/services/%s.go", tbl.Singular):                           serviceTemplate,
+			fmt.Sprintf("internal/app/repository/pgrepo/%s_repo.go", tbl.Singular):             repoTemplate,
+			fmt.Sprintf("internal/app/transport/httpmodels/%s.go", tbl.Singular):               httpModelsTemplate,
+			fmt.Sprintf("internal/app/transport/httpserver/%s_handlers.go", tbl.Singular):      httpHandlersTemplate,
+			fmt.Sprintf("internal/app/transport/httpserver/%s_handlers_test.go", tbl.Singular): httpHandlersTestTemplate,
 		}
 		for path, tmpl := range tableFiles {
 			if err := renderFile(filepath.Join(opts.OutDir, path), tmpl, tableData); err != nil {
@@ -332,7 +341,7 @@ func parseColumns(body string) []column {
 			GoName:   exported(name),
 			JSONName: name,
 			Nullable: nullable,
-			ReadOnly: isReadOnlyColumn(name),
+			ReadOnly: isReadOnlyColumn(name) || strings.Contains(strings.ToUpper(line), "DEFAULT"),
 		}
 		col.Required = !col.Nullable && !col.ReadOnly && !strings.Contains(sqlType, "BOOL")
 		col.GoType, col.DBValue, col.NeedsSQL, col.NeedsTime, col.NeedsUUID, col.ValidCheck = mapSQLType(sqlType, col)
@@ -403,9 +412,11 @@ func readQuerierMethods(path string) (map[string]bool, error) {
 }
 
 type queryMeta struct {
-	Name    string
-	ArgKind string
-	ArgType string
+	Name       string
+	ArgName    string
+	ArgKind    string
+	ArgType    string
+	ReturnType string
 }
 
 func readQuerierMeta(path string) (map[string]queryMeta, error) {
@@ -413,10 +424,11 @@ func readQuerierMeta(path string) (map[string]queryMeta, error) {
 	if err != nil {
 		return nil, err
 	}
-	re := regexp.MustCompile(`(?m)^\s*([A-Z]\w+)\(ctx context\.Context(?:,\s*(\w+)\s+([^\)]+))?\)`)
+	re := regexp.MustCompile(`(?m)^\s*([A-Z]\w+)\(ctx context\.Context(?:,\s*(\w+)\s+([^\)]+))?\)\s+(.+)$`)
 	result := map[string]queryMeta{}
 	for _, match := range re.FindAllStringSubmatch(string(b), -1) {
-		meta := queryMeta{Name: match[1]}
+		meta := queryMeta{Name: match[1], ReturnType: strings.TrimSpace(match[4])}
+		meta.ArgName = match[2]
 		if match[3] == "" {
 			meta.ArgKind = "none"
 		} else if strings.HasPrefix(match[3], "db.") || strings.HasSuffix(match[3], "Params") {
@@ -551,6 +563,7 @@ func finalizeEndpoint(ep endpoint, queries map[string]queryMeta) endpoint {
 	if meta, ok := queries[ep.Query]; ok {
 		ep.QueryArgKind = meta.ArgKind
 		ep.QueryArgType = meta.ArgType
+		ep.ReturnType = meta.ReturnType
 	}
 	for i := range ep.Params {
 		param := &ep.Params[i]
@@ -589,6 +602,285 @@ func mapEndpointParam(param *endpointParam) (goType, dbExpr string, needsTime, n
 	}
 }
 
+func readSQLCParamStructs(dbOutDir string) (map[string][]endpointParam, error) {
+	files, err := filepath.Glob(filepath.Join(dbOutDir, "*.sql.go"))
+	if err != nil {
+		return nil, err
+	}
+	result := map[string][]endpointParam{}
+	structRe := regexp.MustCompile(`(?s)type\s+(\w+Params)\s+struct\s*\{(.*?)\}`)
+	fieldRe := regexp.MustCompile(`(?m)^\s*(\w+)\s+([^` + "`" + `\n]+)(?:` + "`" + `json:"([^\"]+)"` + "`" + `)?`)
+	for _, file := range files {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		for _, sm := range structRe.FindAllStringSubmatch(string(b), -1) {
+			for _, fm := range fieldRe.FindAllStringSubmatch(sm[2], -1) {
+				jsonName := fm[3]
+				if jsonName == "" {
+					jsonName = lowerSnake(fm[1])
+				}
+				result[sm[1]] = append(result[sm[1]], endpointParam{
+					Name:     jsonName,
+					Type:     endpointTypeFromGo(strings.TrimSpace(fm[2])),
+					Required: true,
+				})
+			}
+		}
+	}
+	return result, nil
+}
+
+func autoEndpoints(tables []table, queries map[string]queryMeta, paramStructs map[string][]endpointParam, configured []endpoint) []endpoint {
+	configuredQueries := map[string]bool{}
+	for _, ep := range configured {
+		configuredQueries[ep.Query] = true
+	}
+	var endpoints []endpoint
+	names := make([]string, 0, len(queries))
+	for name := range queries {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if configuredQueries[name] {
+			continue
+		}
+		meta := queries[name]
+		for _, tbl := range tables {
+			if !queryBelongsToTable(name, tbl) {
+				continue
+			}
+			ep := endpoint{
+				TableName: tbl.Name,
+				Name:      name,
+				Method:    defaultHTTPMethod(name, meta.ReturnType),
+				Path:      autoEndpointPath(tbl, name),
+				Query:     name,
+				Result:    "one",
+			}
+			source := "query"
+			if ep.Method == "POST" || ep.Method == "PUT" || ep.Method == "PATCH" {
+				source = "body"
+			}
+			switch meta.ArgKind {
+			case "single":
+				paramName := lowerSnake(meta.ArgName)
+				if paramName == "" {
+					paramName = "value"
+				}
+				ep.Params = []endpointParam{{Name: paramName, Source: source, Type: endpointTypeFromGo(meta.ArgType), Required: true}}
+			case "struct":
+				for _, param := range paramStructs[meta.ArgType] {
+					param.Source = source
+					ep.Params = append(ep.Params, param)
+				}
+			}
+			ep = applyAutoEndpointPathAndSources(ep, tbl)
+			ep = finalizeEndpoint(ep, queries)
+			ep = applyEndpointReturn(ep, tbl)
+			endpoints = append(endpoints, ep)
+		}
+	}
+	return endpoints
+}
+
+func queryBelongsToTable(queryName string, tbl table) bool {
+	return strings.Contains(queryName, tbl.GoName) || strings.Contains(queryName, tbl.GoPlural)
+}
+
+func autoEndpointPath(tbl table, queryName string) string {
+	lowerName := strings.ToLower(queryName)
+	if strings.HasPrefix(lowerName, "create") {
+		return tbl.RouteBase
+	}
+	return tbl.RouteBase + "/" + kebab(queryName)
+}
+
+func applyAutoEndpointPathAndSources(ep endpoint, tbl table) endpoint {
+	if ep.Method != "GET" && ep.Method != "DELETE" {
+		return ep
+	}
+	byParams := byClauseParamNames(ep.Query)
+	if len(byParams) == 0 {
+		ep.Path = tbl.RouteBase
+		return ep
+	}
+	paramSet := map[string]bool{}
+	for _, name := range byParams {
+		paramSet[name] = true
+	}
+	for i := range ep.Params {
+		if paramSet[ep.Params[i].Name] {
+			ep.Params[i].Source = "path"
+		}
+	}
+	ep.Path = tbl.RouteBase + pathSegmentsForParams(byParams)
+	return ep
+}
+
+func byClauseParamNames(queryName string) []string {
+	words := splitNameWords(queryName)
+	for i, word := range words {
+		if strings.EqualFold(word, "by") && i+1 < len(words) {
+			return paramNamesFromWords(words[i+1:])
+		}
+	}
+	return nil
+}
+
+func paramNamesFromWords(words []string) []string {
+	var result []string
+	var current []string
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		for i := range current {
+			current[i] = strings.ToLower(current[i])
+		}
+		result = append(result, strings.Join(current, "_"))
+		current = nil
+	}
+	for _, word := range words {
+		if strings.EqualFold(word, "and") || strings.EqualFold(word, "or") {
+			flush()
+			continue
+		}
+		current = append(current, word)
+	}
+	flush()
+	return result
+}
+
+func pathSegmentsForParams(params []string) string {
+	var b strings.Builder
+	for _, param := range params {
+		label := strings.TrimSuffix(param, "_id")
+		label = strings.ReplaceAll(label, "_", "-")
+		b.WriteString("/")
+		b.WriteString(label)
+		b.WriteString("/{")
+		b.WriteString(param)
+		b.WriteString("}")
+	}
+	return b.String()
+}
+
+func defaultHTTPMethod(queryName, returnType string) string {
+	lowerName := strings.ToLower(queryName)
+	switch {
+	case strings.HasPrefix(lowerName, "get"), strings.HasPrefix(lowerName, "list"), strings.HasPrefix(lowerName, "find"), strings.HasPrefix(lowerName, "search"):
+		return "GET"
+	case strings.HasPrefix(lowerName, "delete"), strings.HasPrefix(lowerName, "remove"), strings.HasPrefix(lowerName, "softdelete"):
+		return "DELETE"
+	case strings.HasPrefix(lowerName, "update"), strings.HasPrefix(lowerName, "patch"):
+		return "PATCH"
+	default:
+		return "POST"
+	}
+}
+
+func applyEndpointReturn(ep endpoint, tbl table) endpoint {
+	valueType, ok := queryValueReturnType(ep.ReturnType)
+	if !ok {
+		ep.Result = "exec"
+		ep.IsExec = true
+		ep.ResponseType = "error"
+		ep.ZeroValue = ""
+		ep.SampleReturn = "nil"
+		return ep
+	}
+	ep.Result = "one"
+	if strings.HasPrefix(valueType, "[]") {
+		ep.Result = "many"
+	}
+	scalarType := strings.TrimPrefix(valueType, "[]")
+	ep.NeedsTime = ep.NeedsTime || scalarType == "time.Time"
+	ep.NeedsUUID = ep.NeedsUUID || scalarType == "uuid.UUID"
+	if scalarType == tbl.GoName {
+		ep.DomainResponse = true
+		if ep.Result == "many" {
+			ep.ResponseType = "[]domain." + tbl.GoName
+			ep.ZeroValue = "nil"
+			ep.SampleReturn = "[]domain." + tbl.GoName + "{sample" + tbl.GoName + "()}, nil"
+		} else {
+			ep.ResponseType = "domain." + tbl.GoName
+			ep.ZeroValue = "domain." + tbl.GoName + "{}"
+			ep.SampleReturn = "sample" + tbl.GoName + "(), nil"
+		}
+		return ep
+	}
+	ep.ResponseType = valueType
+	if ep.Result == "many" {
+		ep.ZeroValue = "nil"
+		ep.SampleReturn = sampleEndpointReturn(valueType) + ", nil"
+	} else {
+		ep.ZeroValue = zeroValue(valueType)
+		ep.SampleReturn = sampleEndpointReturn(valueType) + ", nil"
+	}
+	return ep
+}
+
+func queryValueReturnType(returnType string) (string, bool) {
+	returnType = strings.TrimSpace(returnType)
+	if returnType == "error" {
+		return "", false
+	}
+	returnType = strings.TrimPrefix(strings.TrimSuffix(returnType, ")"), "(")
+	parts := strings.Split(returnType, ",")
+	if len(parts) < 2 || strings.TrimSpace(parts[len(parts)-1]) != "error" {
+		return "", false
+	}
+	return strings.TrimSpace(strings.Join(parts[:len(parts)-1], ",")), true
+}
+
+func endpointTypeFromGo(goType string) string {
+	goType = strings.TrimSpace(strings.TrimPrefix(goType, "db."))
+	switch goType {
+	case "uuid.UUID":
+		return "uuid"
+	case "time.Time":
+		return "time"
+	case "int", "int32", "int64":
+		return "int32"
+	case "sql.NullString":
+		return "null_string"
+	case "sql.NullInt32", "sql.NullInt64":
+		return "null_int32"
+	case "sql.NullTime":
+		return "null_time"
+	default:
+		return "string"
+	}
+}
+
+func sampleEndpointReturn(goType string) string {
+	if strings.HasPrefix(goType, "[]") {
+		inner := strings.TrimPrefix(goType, "[]")
+		return "[]" + inner + "{" + sampleGoValue(inner, "value") + "}"
+	}
+	return sampleGoValue(goType, "value")
+}
+
+func zeroValue(goType string) string {
+	switch goType {
+	case "string":
+		return "\"\""
+	case "int", "int32", "int64":
+		return "0"
+	case "bool":
+		return "false"
+	case "time.Time":
+		return "time.Time{}"
+	case "uuid.UUID":
+		return "uuid.Nil"
+	default:
+		return goType + "{}"
+	}
+}
+
 func attachEndpoints(tables []table, endpoints []endpoint) {
 	for _, ep := range endpoints {
 		for i := range tables {
@@ -599,14 +891,30 @@ func attachEndpoints(tables []table, endpoints []endpoint) {
 	}
 }
 
-func detectQueries(methods map[string]bool, tbl table) querySet {
-	return querySet{
-		Create:    methods["Create"+tbl.GoName],
-		GetAll:    methods["Get"+tbl.GoPlural],
-		GetByID:   methods["Get"+tbl.GoName+"ByID"],
-		Delete:    methods["SoftDelete"+tbl.GoName],
-		DeleteAll: methods["SoftDeleteAll"+tbl.GoPlural],
+func detectQueries(queries map[string]queryMeta, tbl table) querySet {
+	create := false
+	if meta, ok := queries["Create"+tbl.GoName]; ok {
+		create = strings.Contains(meta.ReturnType, tbl.GoName) && strings.Contains(meta.ReturnType, "error")
 	}
+	return querySet{
+		Create:    create,
+		GetAll:    returnsManyDomainRows(queries["Get"+tbl.GoPlural], tbl),
+		GetByID:   returnsOneDomainRow(queries["Get"+tbl.GoName+"ByID"], tbl),
+		Delete:    returnsOnlyError(queries["SoftDelete"+tbl.GoName]),
+		DeleteAll: returnsOnlyError(queries["SoftDeleteAll"+tbl.GoPlural]),
+	}
+}
+
+func returnsManyDomainRows(meta queryMeta, tbl table) bool {
+	return strings.Contains(meta.ReturnType, "[]"+tbl.GoName) && strings.Contains(meta.ReturnType, "error")
+}
+
+func returnsOneDomainRow(meta queryMeta, tbl table) bool {
+	return strings.Contains(meta.ReturnType, "("+tbl.GoName+", error)")
+}
+
+func returnsOnlyError(meta queryMeta) bool {
+	return meta.ReturnType == "error"
 }
 
 func renderFile(path, tmpl string, data renderData) error {
@@ -660,8 +968,67 @@ func renderFile(path, tmpl string, data renderData) error {
 		},
 		"tableEndpointNeedsTime": func(tbl table) bool {
 			for _, ep := range tbl.Endpoints {
-				if ep.NeedsTime {
+				for _, param := range ep.Params {
+					if param.NeedsTime {
+						return true
+					}
+				}
+			}
+			return false
+		},
+		"tableHasStandardMethods": func(tbl table) bool {
+			return tbl.Queries.Create || tbl.Queries.GetAll || tbl.Queries.GetByID || tbl.Queries.Delete || tbl.Queries.DeleteAll
+		},
+		"tableHasServiceMethods": func(tbl table) bool {
+			return tbl.Queries.Create || tbl.Queries.GetAll || tbl.Queries.GetByID || tbl.Queries.Delete || tbl.Queries.DeleteAll || len(tbl.Endpoints) > 0
+		},
+		"tableHasHandlers": func(tbl table) bool {
+			return tbl.Queries.Create || tbl.Queries.GetAll || tbl.Queries.GetByID || tbl.Queries.Delete || tbl.Queries.DeleteAll || len(tbl.Endpoints) > 0
+		},
+		"tableHandlersNeedJSON": func(tbl table) bool {
+			if tbl.Queries.Create {
+				return true
+			}
+			for _, ep := range tbl.Endpoints {
+				if len(ep.BodyParams) > 0 {
 					return true
+				}
+			}
+			return false
+		},
+		"tableHandlersNeedErrors": func(tbl table) bool {
+			if tbl.Queries.GetByID {
+				return true
+			}
+			for _, ep := range tbl.Endpoints {
+				if ep.Result == "one" && ep.DomainResponse {
+					return true
+				}
+			}
+			return false
+		},
+		"tableHandlersNeedUUID": func(tbl table) bool {
+			if tbl.Queries.GetByID || tbl.Queries.Delete {
+				return true
+			}
+			for _, ep := range tbl.Endpoints {
+				for _, param := range ep.Params {
+					if param.NeedsUUID {
+						return true
+					}
+				}
+			}
+			return false
+		},
+		"tableHandlersNeedMux": func(tbl table) bool {
+			if tbl.Queries.GetByID || tbl.Queries.Delete {
+				return true
+			}
+			for _, ep := range tbl.Endpoints {
+				for _, param := range ep.Params {
+					if param.Source == "path" {
+						return true
+					}
 				}
 			}
 			return false
@@ -669,6 +1036,115 @@ func renderFile(path, tmpl string, data renderData) error {
 		"tableEndpointNeedsStrconv": func(tbl table) bool {
 			for _, ep := range tbl.Endpoints {
 				if ep.NeedsStrconv {
+					return true
+				}
+			}
+			return false
+		},
+		"tableServiceNeedsTime": func(tbl table) bool {
+			for _, ep := range tbl.Endpoints {
+				if strings.Contains(ep.ResponseType, "time.Time") {
+					return true
+				}
+			}
+			return false
+		},
+		"tableServiceNeedsUUID": func(tbl table) bool {
+			if tbl.Queries.GetByID || tbl.Queries.Delete {
+				return true
+			}
+			for _, ep := range tbl.Endpoints {
+				if strings.Contains(ep.ResponseType, "uuid.UUID") {
+					return true
+				}
+			}
+			return false
+		},
+		"tableRepoNeedsTime": func(tbl table) bool {
+			for _, ep := range tbl.Endpoints {
+				if strings.Contains(ep.ResponseType, "time.Time") {
+					return true
+				}
+			}
+			return false
+		},
+		"tableRepoNeedsUUID": func(tbl table) bool {
+			if tbl.Queries.GetByID || tbl.Queries.Delete {
+				return true
+			}
+			for _, ep := range tbl.Endpoints {
+				if strings.Contains(ep.ResponseType, "uuid.UUID") {
+					return true
+				}
+			}
+			return false
+		},
+		"tableRepoNeedsErrors": func(tbl table) bool {
+			if tbl.Queries.GetByID {
+				return true
+			}
+			for _, ep := range tbl.Endpoints {
+				if ep.Result == "one" && ep.DomainResponse {
+					return true
+				}
+			}
+			return false
+		},
+		"tableRepoNeedsSQL": func(tbl table) bool {
+			if tbl.Queries.GetByID {
+				return true
+			}
+			for _, col := range tbl.CreateCols {
+				if tbl.Queries.Create && col.NeedsSQL {
+					return true
+				}
+			}
+			for _, ep := range tbl.Endpoints {
+				if ep.Result == "one" && ep.DomainResponse {
+					return true
+				}
+				for _, param := range ep.Params {
+					if strings.Contains(param.DBExpr, "sql.") {
+						return true
+					}
+				}
+			}
+			return false
+		},
+		"anyServiceNeedsTime": func(tables []table) bool {
+			for _, tbl := range tables {
+				for _, ep := range tbl.Endpoints {
+					if strings.Contains(ep.ResponseType, "time.Time") {
+						return true
+					}
+				}
+			}
+			return false
+		},
+		"anyServiceNeedsUUID": func(tables []table) bool {
+			for _, tbl := range tables {
+				if tbl.Queries.GetByID || tbl.Queries.Delete {
+					return true
+				}
+				for _, ep := range tbl.Endpoints {
+					if strings.Contains(ep.ResponseType, "uuid.UUID") {
+						return true
+					}
+				}
+			}
+			return false
+		},
+		"anyServiceNeedsImports": func(tables []table) bool {
+			for _, tbl := range tables {
+				if tbl.Queries.Create || tbl.Queries.GetAll || tbl.Queries.GetByID || tbl.Queries.Delete || tbl.Queries.DeleteAll || len(tbl.Endpoints) > 0 {
+					return true
+				}
+			}
+			return false
+		},
+		"anyGeneratedEndpointTests": func(tables []table) bool {
+			for _, tbl := range tables {
+				if tbl.Queries.Create || tbl.Queries.GetAll || tbl.Queries.GetByID || tbl.Queries.Delete || tbl.Queries.DeleteAll || len(tbl.Endpoints) > 0 {
 					return true
 				}
 			}
@@ -704,13 +1180,16 @@ func renderFile(path, tmpl string, data renderData) error {
 			}
 			return false
 		},
-		"toDomainValue":    toDomainValue,
-		"handlerParamRead": handlerParamRead,
-		"repoQueryArg":     repoQueryArg,
-		"sampleDomain":     sampleDomain,
-		"createJSONBody":   createJSONBody,
-		"endpointJSONBody": endpointJSONBody,
-		"testURL":          testURL,
+		"endpointReturn":           endpointReturn,
+		"toDomainValue":            toDomainValue,
+		"handlerBodyParamReads":    handlerBodyParamReads,
+		"handlerNonBodyParamReads": handlerNonBodyParamReads,
+		"handlerParamRead":         handlerParamRead,
+		"repoQueryArg":             repoQueryArg,
+		"sampleDomain":             sampleDomain,
+		"createJSONBody":           createJSONBody,
+		"endpointJSONBody":         endpointJSONBody,
+		"testURL":                  testURL,
 	}
 	if err := template.Must(template.New(filepath.Base(path)).Funcs(funcs).Parse(tmpl)).Execute(&buf, data); err != nil {
 		return err
@@ -733,6 +1212,76 @@ func renderFile(path, tmpl string, data renderData) error {
 	return os.WriteFile(path, out, mode)
 }
 
+func tidyGeneratedGo(src []byte) []byte {
+	text := string(src)
+	assignmentGap := regexp.MustCompile(`(?m)^(\s*params\.[A-Za-z0-9_]+ = .+)\n[ \t]*\n(\s*params\.[A-Za-z0-9_]+ = .+)$`)
+	for assignmentGap.MatchString(text) {
+		text = assignmentGap.ReplaceAllString(text, "$1\n$2")
+	}
+	return []byte(text)
+}
+
+func normalizeGoImports(src []byte) []byte {
+	text := string(src)
+	re := regexp.MustCompile(`(?s)import \(
+(.*?)
+\)`)
+	return []byte(re.ReplaceAllStringFunc(text, func(block string) string {
+		match := re.FindStringSubmatch(block)
+		if len(match) != 2 {
+			return block
+		}
+		groups := make([][]string, 3)
+		seen := map[string]bool{}
+		for _, raw := range strings.Split(match[1], "\n") {
+			line := strings.TrimSpace(raw)
+			if line == "" || seen[line] {
+				continue
+			}
+			seen[line] = true
+			importPath := importPathFromLine(line)
+			group := 0
+			if strings.Contains(importPath, ".") {
+				group = 1
+			}
+			if strings.HasPrefix(importPath, "github.com/repomz/rest_generator/") {
+				group = 2
+			}
+			groups[group] = append(groups[group], line)
+		}
+		var lines []string
+		for _, group := range groups {
+			if len(group) == 0 {
+				continue
+			}
+			sort.Strings(group)
+			if len(lines) > 0 {
+				lines = append(lines, "")
+			}
+			for _, line := range group {
+				lines = append(lines, "\t"+line)
+			}
+		}
+		return "import (\n" + strings.Join(lines, "\n") + "\n)"
+	}))
+}
+
+func importPathFromLine(line string) string {
+	start := strings.Index(line, "\"")
+	end := strings.LastIndex(line, "\"")
+	if start < 0 || end <= start {
+		return line
+	}
+	return line[start+1 : end]
+}
+
+func endpointReturn(ep endpoint) string {
+	if ep.IsExec {
+		return "error"
+	}
+	return "(" + ep.ResponseType + ", error)"
+}
+
 func toDomainValue(col column) string {
 	if !col.Nullable {
 		return "item." + col.GoName
@@ -747,6 +1296,22 @@ func toDomainValue(col column) string {
 	default:
 		return "item." + col.GoName
 	}
+}
+
+func handlerBodyParamReads(ep endpoint) string {
+	lines := make([]string, 0, len(ep.BodyParams))
+	for _, param := range ep.BodyParams {
+		lines = append(lines, fmt.Sprintf("params.%s = body.%s", param.GoName, param.GoName))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func handlerNonBodyParamReads(ep endpoint) string {
+	blocks := make([]string, 0, len(ep.NonBodyParams))
+	for _, param := range ep.NonBodyParams {
+		blocks = append(blocks, handlerParamRead(param))
+	}
+	return strings.Join(blocks, "\n")
 }
 
 func handlerParamRead(param endpointParam) string {
@@ -781,7 +1346,7 @@ func handlerParamRead(param endpointParam) string {
 	if !param.Required {
 		b.WriteString("}\n")
 	}
-	return b.String()
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func repoQueryArg(ep endpoint) string {
@@ -895,8 +1460,61 @@ func sampleRawValue(paramType, name string) string {
 	}
 }
 
+func kebab(s string) string {
+	return strings.ReplaceAll(lowerSnake(s), "_", "-")
+}
+
+func lowerSnake(s string) string {
+	words := splitNameWords(s)
+	for i := range words {
+		words[i] = strings.ToLower(words[i])
+	}
+	return strings.Join(words, "_")
+}
+
+func splitNameWords(s string) []string {
+	s = normalizeNameAcronymBoundaries(s)
+	var words []string
+	var current []rune
+	runes := []rune(s)
+	for i, r := range runes {
+		if r == '_' || r == '-' || r == ' ' {
+			if len(current) > 0 {
+				words = append(words, string(current))
+				current = nil
+			}
+			continue
+		}
+		if len(current) > 0 && unicode.IsUpper(r) {
+			prev := runes[i-1]
+			var next rune
+			if i+1 < len(runes) {
+				next = runes[i+1]
+			}
+			if !unicode.IsUpper(prev) || (next != 0 && unicode.IsLower(next)) {
+				words = append(words, string(current))
+				current = nil
+			}
+		}
+		current = append(current, r)
+	}
+	if len(current) > 0 {
+		words = append(words, string(current))
+	}
+	return words
+}
+
+func normalizeNameAcronymBoundaries(s string) string {
+	acronyms := []string{"UUID", "HTTP", "SQL", "URL", "API", "DB", "ID"}
+	for _, acronym := range acronyms {
+		s = strings.ReplaceAll(s, acronym+"and", acronym+"And")
+		s = strings.ReplaceAll(s, acronym+"or", acronym+"Or")
+	}
+	return s
+}
+
 func cleanIdent(s string) string {
-	return strings.Trim(s, `"`)
+	return strings.Trim(s, "\"")
 }
 
 func singular(s string) string {

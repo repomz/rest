@@ -119,3 +119,12 @@ curl -sS http://localhost:8080/studies | jq '.[0]'
 # Не запускать при проверке заполненной базы на 30 пациентов.
 curl -sS -X DELETE http://localhost:8080/studies | jq
 ```
+
+
+```bash
+sqlc generate
+./bin/rest generate
+
+go test ./...
+go vet ./...
+```

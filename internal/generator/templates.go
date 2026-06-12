@@ -238,12 +238,19 @@ func New{{ .Table.GoName }}FromDB(item db.{{ .Table.GoName }}) {{ .Table.GoName 
 
 const serviceTemplate = `package services
 
+{{- if tableHasServiceMethods .Table }}
 import (
 	"context"
+{{- if tableServiceNeedsTime .Table }}
+	"time"
+{{- end }}
+{{- if tableServiceNeedsUUID .Table }}
 
 	"github.com/google/uuid"
+{{- end }}
 	"{{ .Module }}/internal/app/domain"
 )
+{{- end }}
 
 type {{ .Table.GoName }}Repository interface {
 {{- if .Queries.GetAll }}
@@ -262,7 +269,7 @@ type {{ .Table.GoName }}Repository interface {
 	DeleteAll{{ .Table.GoPlural }}(ctx context.Context) error
 {{- end }}
 {{- range .Table.Endpoints }}
-	{{ .Name }}(ctx context.Context, params domain.{{ .Name }}Params) ({{ if eq .Result "many" }}[]{{ end }}domain.{{ $.Table.GoName }}, error)
+	{{ .Name }}(ctx context.Context, params domain.{{ .Name }}Params) {{ endpointReturn . }}
 {{- end }}
 }
 
@@ -278,53 +285,65 @@ func New{{ .Table.GoName }}Service(repo {{ .Table.GoName }}Repository) {{ .Table
 func (s {{ .Table.GoName }}Service) GetAll{{ .Table.GoPlural }}(ctx context.Context) ([]domain.{{ .Table.GoName }}, error) {
 	return s.repo.GetAll{{ .Table.GoPlural }}(ctx)
 }
-{{- end }}
+{{ end }}
 
-{{- if .Queries.GetByID }}
+{{ if .Queries.GetByID }}
 func (s {{ .Table.GoName }}Service) Get{{ .Table.GoName }}ByID(ctx context.Context, id uuid.UUID) (domain.{{ .Table.GoName }}, error) {
 	return s.repo.Get{{ .Table.GoName }}ByID(ctx, id)
 }
-{{- end }}
+{{ end }}
 
-{{- if .Queries.Create }}
+{{ if .Queries.Create }}
 func (s {{ .Table.GoName }}Service) Create{{ .Table.GoName }}(ctx context.Context, item domain.{{ .Table.GoName }}DB) (domain.{{ .Table.GoName }}, error) {
 	return s.repo.Create{{ .Table.GoName }}(ctx, item)
 }
-{{- end }}
+{{ end }}
 
-{{- if .Queries.Delete }}
+{{ if .Queries.Delete }}
 func (s {{ .Table.GoName }}Service) Delete{{ .Table.GoName }}(ctx context.Context, id uuid.UUID) error {
 	return s.repo.Delete{{ .Table.GoName }}(ctx, id)
 }
-{{- end }}
+{{ end }}
 
-{{- if .Queries.DeleteAll }}
+{{ if .Queries.DeleteAll }}
 func (s {{ .Table.GoName }}Service) DeleteAll{{ .Table.GoPlural }}(ctx context.Context) error {
 	return s.repo.DeleteAll{{ .Table.GoPlural }}(ctx)
 }
-{{- end }}
+{{ end }}
 
-{{- range .Table.Endpoints }}
-func (s {{ $.Table.GoName }}Service) {{ .Name }}(ctx context.Context, params domain.{{ .Name }}Params) ({{ if eq .Result "many" }}[]{{ end }}domain.{{ $.Table.GoName }}, error) {
+{{ range .Table.Endpoints }}
+func (s {{ $.Table.GoName }}Service) {{ .Name }}(ctx context.Context, params domain.{{ .Name }}Params) {{ endpointReturn . }} {
 	return s.repo.{{ .Name }}(ctx, params)
 }
-{{- end }}
-`
-
-const repoUtilsTemplate = `package pgrepo
+{{ end }}
 `
 
 const repoTemplate = `package pgrepo
 
 import (
+{{- if tableHasServiceMethods .Table }}
 	"context"
+{{- end }}
+{{- if tableRepoNeedsSQL .Table }}
 	"database/sql"
+{{- end }}
+{{- if tableRepoNeedsErrors .Table }}
 	"errors"
+{{- end }}
+{{- if tableHasServiceMethods .Table }}
 	"fmt"
+{{- end }}
+{{- if tableRepoNeedsTime .Table }}
+	"time"
+{{- end }}
+{{- if tableRepoNeedsUUID .Table }}
 
 	"github.com/google/uuid"
+{{- end }}
 	"{{ .DBImport }}"
+{{- if tableHasServiceMethods .Table }}
 	"{{ .Module }}/internal/app/domain"
+{{- end }}
 )
 
 type {{ .Table.GoName }}Repo struct {
@@ -347,9 +366,9 @@ func (r {{ .Table.GoName }}Repo) GetAll{{ .Table.GoPlural }}(ctx context.Context
 	}
 	return result, nil
 }
-{{- end }}
+{{ end }}
 
-{{- if .Queries.GetByID }}
+{{ if .Queries.GetByID }}
 func (r {{ .Table.GoName }}Repo) Get{{ .Table.GoName }}ByID(ctx context.Context, id uuid.UUID) (domain.{{ .Table.GoName }}, error) {
 	item, err := r.query.Get{{ .Table.GoName }}ByID(ctx, id)
 	if err != nil {
@@ -360,9 +379,9 @@ func (r {{ .Table.GoName }}Repo) Get{{ .Table.GoName }}ByID(ctx context.Context,
 	}
 	return domain.New{{ .Table.GoName }}FromDB(item), nil
 }
-{{- end }}
+{{ end }}
 
-{{- if .Queries.Create }}
+{{ if .Queries.Create }}
 func (r {{ .Table.GoName }}Repo) Create{{ .Table.GoName }}(ctx context.Context, item domain.{{ .Table.GoName }}DB) (domain.{{ .Table.GoName }}, error) {
 	if err := item.Validate(); err != nil {
 		return domain.{{ .Table.GoName }}{}, err
@@ -377,71 +396,78 @@ func (r {{ .Table.GoName }}Repo) Create{{ .Table.GoName }}(ctx context.Context, 
 	}
 	return domain.New{{ .Table.GoName }}FromDB(created), nil
 }
-{{- end }}
+{{ end }}
 
-{{- if .Queries.Delete }}
+{{ if .Queries.Delete }}
 func (r {{ .Table.GoName }}Repo) Delete{{ .Table.GoName }}(ctx context.Context, id uuid.UUID) error {
 	if err := r.query.SoftDelete{{ .Table.GoName }}(ctx, id); err != nil {
 		return fmt.Errorf("failed to delete {{ lower .Table.GoName }}: %w", err)
 	}
 	return nil
 }
-{{- end }}
+{{ end }}
 
-{{- if .Queries.DeleteAll }}
+{{ if .Queries.DeleteAll }}
 func (r {{ .Table.GoName }}Repo) DeleteAll{{ .Table.GoPlural }}(ctx context.Context) error {
 	if err := r.query.SoftDeleteAll{{ .Table.GoPlural }}(ctx); err != nil {
 		return fmt.Errorf("failed to delete {{ lower .Table.GoPlural }}: %w", err)
 	}
 	return nil
 }
-{{- end }}
+{{ end }}
 
-{{- range .Table.Endpoints }}
-func (r {{ $.Table.GoName }}Repo) {{ .Name }}(ctx context.Context, params domain.{{ .Name }}Params) ({{ if eq .Result "many" }}[]{{ end }}domain.{{ $.Table.GoName }}, error) {
+{{ range .Table.Endpoints }}
+func (r {{ $.Table.GoName }}Repo) {{ .Name }}(ctx context.Context, params domain.{{ .Name }}Params) {{ endpointReturn . }} {
 	if err := params.Validate(); err != nil {
-		{{- if eq .Result "many" }}
-		return nil, err
+		{{- if .IsExec }}
+		return err
 		{{- else }}
-		return domain.{{ $.Table.GoName }}{}, err
+		return {{ .ZeroValue }}, err
 		{{- end }}
 	}
+	{{- if .IsExec }}
+	if err := r.query.{{ .Query }}(ctx{{ repoQueryArg . }}); err != nil {
+		return fmt.Errorf("failed to execute {{ .Query }}: %w", err)
+	}
+	return nil
+	{{- else }}
 	items, err := r.query.{{ .Query }}(ctx{{ repoQueryArg . }})
 	if err != nil {
-		{{- if eq .Result "one" }}
+		{{- if and (eq .Result "one") .DomainResponse }}
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.{{ $.Table.GoName }}{}, domain.ErrNotFound
+			return {{ .ZeroValue }}, domain.ErrNotFound
 		}
 		{{- end }}
-		{{- if eq .Result "many" }}
-		return nil, fmt.Errorf("failed to execute {{ .Query }}: %w", err)
-		{{- else }}
-		return domain.{{ $.Table.GoName }}{}, fmt.Errorf("failed to execute {{ .Query }}: %w", err)
-		{{- end }}
+		return {{ .ZeroValue }}, fmt.Errorf("failed to execute {{ .Query }}: %w", err)
 	}
-	{{- if eq .Result "many" }}
+	{{- if .DomainResponse }}
+		{{- if eq .Result "many" }}
 	result := make([]domain.{{ $.Table.GoName }}, 0, len(items))
 	for _, item := range items {
 		result = append(result, domain.New{{ $.Table.GoName }}FromDB(item))
 	}
 	return result, nil
-	{{- else }}
+		{{- else }}
 	return domain.New{{ $.Table.GoName }}FromDB(items), nil
+		{{- end }}
+	{{- else }}
+	return items, nil
+	{{- end }}
 	{{- end }}
 }
-{{- end }}
+{{ end }}
 `
 
 const httpModelsTemplate = `package httpmodels
 
 import (
-{{- if hasImport .Table.CreateCols "time" }}
+{{- if hasImport .Table.Columns "time" }}
 	"time"
 {{- end }}
 {{- if hasImport .Table.Columns "uuid" }}
+
 	"github.com/google/uuid"
 {{- end }}
-
 	"{{ .Module }}/internal/app/domain"
 )
 
@@ -481,7 +507,7 @@ type {{ .Name }}Request struct {
 {{- end }}
 }
 {{- end }}
-{{- end }}
+{{ end }}
 `
 
 const httpServerTemplate = `package httpserver
@@ -507,49 +533,75 @@ func NewHttpServer(
 
 const httpServerInterfacesTemplate = `package httpserver
 
+{{- if anyServiceNeedsImports .Tables }}
 import (
 	"context"
+{{- if anyServiceNeedsTime .Tables }}
+	"time"
+{{- end }}
+{{- if anyServiceNeedsUUID .Tables }}
 
 	"github.com/google/uuid"
+{{- end }}
 	"{{ .Module }}/internal/app/domain"
 )
+{{- end }}
 
 {{ range .Tables }}
 {{- $table := . }}
 type {{ .GoName }}Service interface {
+{{- if .Queries.GetAll }}
 	GetAll{{ .GoPlural }}(ctx context.Context) ([]domain.{{ .GoName }}, error)
+{{- end }}
+{{- if .Queries.GetByID }}
 	Get{{ .GoName }}ByID(ctx context.Context, id uuid.UUID) (domain.{{ .GoName }}, error)
+{{- end }}
+{{- if .Queries.Create }}
 	Create{{ .GoName }}(ctx context.Context, item domain.{{ .GoName }}DB) (domain.{{ .GoName }}, error)
+{{- end }}
+{{- if .Queries.Delete }}
 	Delete{{ .GoName }}(ctx context.Context, id uuid.UUID) error
+{{- end }}
+{{- if .Queries.DeleteAll }}
 	DeleteAll{{ .GoPlural }}(ctx context.Context) error
+{{- end }}
 {{- range .Endpoints }}
-	{{ .Name }}(ctx context.Context, params domain.{{ .Name }}Params) ({{ if eq .Result "many" }}[]{{ end }}domain.{{ $table.GoName }}, error)
+	{{ .Name }}(ctx context.Context, params domain.{{ .Name }}Params) {{ endpointReturn . }}
 {{- end }}
 }
 {{ end }}
 `
 
 const httpHandlersTemplate = `package httpserver
+{{- if tableHasHandlers .Table }}
 
 import (
+{{ if tableHandlersNeedJSON .Table -}}
 	"encoding/json"
+{{ end -}}
+{{ if tableHandlersNeedErrors .Table -}}
 	"errors"
+{{ end -}}
 	"net/http"
-{{- if tableEndpointNeedsStrconv .Table }}
+{{ if tableEndpointNeedsStrconv .Table -}}
 	"strconv"
-{{- end }}
-{{- if tableEndpointNeedsTime .Table }}
+{{ end -}}
+{{ if tableEndpointNeedsTime .Table -}}
 	"time"
-{{- end }}
-
-	"github.com/google/uuid"
+{{ end -}}
+{{ if or (tableHandlersNeedMux .Table) (tableHandlersNeedUUID .Table) }}
 	"github.com/gorilla/mux"
+{{ if tableHandlersNeedUUID .Table -}}
+	"github.com/google/uuid"
+{{ end -}}
+{{ end -}}
 	"{{ .Module }}/internal/app/common/server"
 	"{{ .Module }}/internal/app/domain"
 	"{{ .Module }}/internal/app/transport/httpmodels"
 )
+{{- end }}
 
-{{- if .Queries.GetAll }}
+{{ if .Queries.GetAll }}
 func (h HttpServer) GetAll{{ .Table.GoPlural }}(w http.ResponseWriter, r *http.Request) {
 	items, err := h.{{ .Table.Singular }}Service.GetAll{{ .Table.GoPlural }}(r.Context())
 	if err != nil {
@@ -562,9 +614,9 @@ func (h HttpServer) GetAll{{ .Table.GoPlural }}(w http.ResponseWriter, r *http.R
 	}
 	server.RespondOK(response, w, r)
 }
-{{- end }}
+{{ end }}
 
-{{- if .Queries.GetByID }}
+{{ if .Queries.GetByID }}
 func (h HttpServer) Get{{ .Table.GoName }}ByID(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
@@ -582,9 +634,9 @@ func (h HttpServer) Get{{ .Table.GoName }}ByID(w http.ResponseWriter, r *http.Re
 	}
 	server.RespondOK(httpmodels.New{{ .Table.GoName }}Response(item), w, r)
 }
-{{- end }}
+{{ end }}
 
-{{- if .Queries.Create }}
+{{ if .Queries.Create }}
 func (h HttpServer) Create{{ .Table.GoName }}(w http.ResponseWriter, r *http.Request) {
 	var request httpmodels.{{ .Table.GoName }}Request
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -603,9 +655,9 @@ func (h HttpServer) Create{{ .Table.GoName }}(w http.ResponseWriter, r *http.Req
 	}
 	server.RespondOK(httpmodels.New{{ .Table.GoName }}Response(item), w, r)
 }
-{{- end }}
+{{ end }}
 
-{{- if .Queries.Delete }}
+{{ if .Queries.Delete }}
 func (h HttpServer) Delete{{ .Table.GoName }}(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
@@ -618,9 +670,9 @@ func (h HttpServer) Delete{{ .Table.GoName }}(w http.ResponseWriter, r *http.Req
 	}
 	server.RespondOK(map[string]bool{"deleted": true}, w, r)
 }
-{{- end }}
+{{ end }}
 
-{{- if .Queries.DeleteAll }}
+{{ if .Queries.DeleteAll }}
 func (h HttpServer) DeleteAll{{ .Table.GoPlural }}(w http.ResponseWriter, r *http.Request) {
 	if err := h.{{ .Table.Singular }}Service.DeleteAll{{ .Table.GoPlural }}(r.Context()); err != nil {
 		server.RespondWithError(err, w, r)
@@ -628,9 +680,9 @@ func (h HttpServer) DeleteAll{{ .Table.GoPlural }}(w http.ResponseWriter, r *htt
 	}
 	server.RespondOK(map[string]bool{"deleted": true}, w, r)
 }
-{{- end }}
+{{ end }}
 
-{{- range .Table.Endpoints }}
+{{ range .Table.Endpoints }}
 func (h HttpServer) {{ .Name }}(w http.ResponseWriter, r *http.Request) {
 	var params domain.{{ .Name }}Params
 	{{- if endpointNeedsBody . }}
@@ -639,17 +691,23 @@ func (h HttpServer) {{ .Name }}(w http.ResponseWriter, r *http.Request) {
 		server.BadRequest("invalid-json", err, w, r)
 		return
 	}
+{{ handlerBodyParamReads . }}
 	{{- end }}
-	{{- range .Params }}
-	{{ handlerParamRead . }}
-	{{- end }}
+{{ handlerNonBodyParamReads . }}
 	if err := params.Validate(); err != nil {
 		server.BadRequest("invalid-request", err, w, r)
 		return
 	}
+	{{- if .IsExec }}
+	if err := h.{{ $.Table.Singular }}Service.{{ .Name }}(r.Context(), params); err != nil {
+		server.RespondWithError(err, w, r)
+		return
+	}
+	server.RespondOK(map[string]bool{"ok": true}, w, r)
+	{{- else }}
 	items, err := h.{{ $.Table.Singular }}Service.{{ .Name }}(r.Context(), params)
 	if err != nil {
-		{{- if eq .Result "one" }}
+		{{- if and (eq .Result "one") .DomainResponse }}
 		if errors.Is(err, domain.ErrNotFound) {
 			server.NotFound("not-found", err, w, r)
 			return
@@ -658,23 +716,26 @@ func (h HttpServer) {{ .Name }}(w http.ResponseWriter, r *http.Request) {
 		server.RespondWithError(err, w, r)
 		return
 	}
-	{{- if eq .Result "many" }}
+	{{- if .DomainResponse }}
+		{{- if eq .Result "many" }}
 	response := make([]httpmodels.{{ $.Table.GoName }}Response, 0, len(items))
 	for _, item := range items {
 		response = append(response, httpmodels.New{{ $.Table.GoName }}Response(item))
 	}
 	server.RespondOK(response, w, r)
-	{{- else }}
+		{{- else }}
 	server.RespondOK(httpmodels.New{{ $.Table.GoName }}Response(items), w, r)
+		{{- end }}
+	{{- else }}
+	server.RespondOK(items, w, r)
+	{{- end }}
 	{{- end }}
 }
-{{- end }}
+{{ end }}
 `
 
-const httpUtilsTemplate = `package httpserver
-`
-
-const httpServerEndpointsTestTemplate = `package httpserver
+const httpHandlersTestTemplate = `package httpserver
+{{- if tableHasHandlers .Table }}
 
 import (
 	"bytes"
@@ -682,92 +743,107 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-{{- if tablesNeedTime .Tables }}
+{{ if tableServiceNeedsTime .Table -}}
 	"time"
-{{- end }}
-
+{{ end }}
 	"github.com/gorilla/mux"
+{{ if tableServiceNeedsUUID .Table -}}
 	"github.com/google/uuid"
+{{ end -}}
 	"{{ .Module }}/internal/app/domain"
 )
 
-{{- range .Tables }}
-{{- $table := . }}
-type fake{{ .GoName }}Service struct{}
+type fake{{ .Table.GoName }}Service struct{}
 
-func sample{{ .GoName }}() domain.{{ .GoName }} {
-	return {{ sampleDomain . }}
+func sample{{ .Table.GoName }}() domain.{{ .Table.GoName }} {
+	return {{ sampleDomain .Table }}
 }
 
-func (fake{{ .GoName }}Service) GetAll{{ .GoPlural }}(ctx context.Context) ([]domain.{{ .GoName }}, error) {
-	return []domain.{{ .GoName }}{sample{{ .GoName }}()}, nil
+{{ if .Queries.GetAll }}
+func (fake{{ .Table.GoName }}Service) GetAll{{ .Table.GoPlural }}(ctx context.Context) ([]domain.{{ .Table.GoName }}, error) {
+	return []domain.{{ .Table.GoName }}{sample{{ .Table.GoName }}()}, nil
 }
+{{ end }}
 
-func (fake{{ .GoName }}Service) Get{{ .GoName }}ByID(ctx context.Context, id uuid.UUID) (domain.{{ .GoName }}, error) {
-	return sample{{ .GoName }}(), nil
+{{ if .Queries.GetByID }}
+func (fake{{ .Table.GoName }}Service) Get{{ .Table.GoName }}ByID(ctx context.Context, id uuid.UUID) (domain.{{ .Table.GoName }}, error) {
+	return sample{{ .Table.GoName }}(), nil
 }
+{{ end }}
 
-func (fake{{ .GoName }}Service) Create{{ .GoName }}(ctx context.Context, item domain.{{ .GoName }}DB) (domain.{{ .GoName }}, error) {
-	return sample{{ .GoName }}(), nil
+{{ if .Queries.Create }}
+func (fake{{ .Table.GoName }}Service) Create{{ .Table.GoName }}(ctx context.Context, item domain.{{ .Table.GoName }}DB) (domain.{{ .Table.GoName }}, error) {
+	return sample{{ .Table.GoName }}(), nil
 }
+{{ end }}
 
-func (fake{{ .GoName }}Service) Delete{{ .GoName }}(ctx context.Context, id uuid.UUID) error {
+{{ if .Queries.Delete }}
+func (fake{{ .Table.GoName }}Service) Delete{{ .Table.GoName }}(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
+{{ end }}
 
-func (fake{{ .GoName }}Service) DeleteAll{{ .GoPlural }}(ctx context.Context) error {
+{{ if .Queries.DeleteAll }}
+func (fake{{ .Table.GoName }}Service) DeleteAll{{ .Table.GoPlural }}(ctx context.Context) error {
 	return nil
 }
+{{ end }}
 
-{{- range .Endpoints }}
-func (fake{{ $table.GoName }}Service) {{ .Name }}(ctx context.Context, params domain.{{ .Name }}Params) ({{ if eq .Result "many" }}[]{{ end }}domain.{{ $table.GoName }}, error) {
-	{{- if eq .Result "many" }}
-	return []domain.{{ $table.GoName }}{sample{{ $table.GoName }}()}, nil
-	{{- else }}
-	return sample{{ $table.GoName }}(), nil
-	{{- end }}
+{{ range .Table.Endpoints }}
+func (fake{{ $.Table.GoName }}Service) {{ .Name }}(ctx context.Context, params domain.{{ .Name }}Params) {{ endpointReturn . }} {
+	return {{ .SampleReturn }}
 }
+{{ end }}
 
-{{- end }}
-{{- end }}
-
-func testRouter() *mux.Router {
-	httpServer := NewHttpServer(
-{{- range .Tables }}
-		fake{{ .GoName }}Service{},
-{{- end }}
-	)
+func test{{ .Table.GoName }}HandlersRouter() *mux.Router {
+	httpServer := NewHttpServer(fake{{ .Table.GoName }}Service{})
 	router := mux.NewRouter()
-{{- range .Tables }}
-	router.HandleFunc("{{ .RouteBase }}", httpServer.GetAll{{ .GoPlural }}).Methods(http.MethodGet)
-	router.HandleFunc("{{ .RouteBase }}", httpServer.Create{{ .GoName }}).Methods(http.MethodPost)
-	router.HandleFunc("{{ .RouteBase }}", httpServer.DeleteAll{{ .GoPlural }}).Methods(http.MethodDelete)
-{{- range .Endpoints }}
+{{- if .Queries.GetAll }}
+	router.HandleFunc("{{ .Table.RouteBase }}", httpServer.GetAll{{ .Table.GoPlural }}).Methods(http.MethodGet)
+{{- end }}
+{{- if .Queries.Create }}
+	router.HandleFunc("{{ .Table.RouteBase }}", httpServer.Create{{ .Table.GoName }}).Methods(http.MethodPost)
+{{- end }}
+{{- if .Queries.DeleteAll }}
+	router.HandleFunc("{{ .Table.RouteBase }}", httpServer.DeleteAll{{ .Table.GoPlural }}).Methods(http.MethodDelete)
+{{- end }}
+{{- range .Table.Endpoints }}
 	router.HandleFunc("{{ .Path }}", httpServer.{{ .Name }}).Methods("{{ .Method }}")
 {{- end }}
-	router.HandleFunc("{{ .RouteBase }}/{id}", httpServer.Get{{ .GoName }}ByID).Methods(http.MethodGet)
-	router.HandleFunc("{{ .RouteBase }}/{id}", httpServer.Delete{{ .GoName }}).Methods(http.MethodDelete)
+{{- if .Queries.GetByID }}
+	router.HandleFunc("{{ .Table.RouteBase }}/{id}", httpServer.Get{{ .Table.GoName }}ByID).Methods(http.MethodGet)
+{{- end }}
+{{- if .Queries.Delete }}
+	router.HandleFunc("{{ .Table.RouteBase }}/{id}", httpServer.Delete{{ .Table.GoName }}).Methods(http.MethodDelete)
 {{- end }}
 	return router
 }
 
-func TestGeneratedEndpoints(t *testing.T) {
-	router := testRouter()
+func Test{{ .Table.GoName }}Handlers(t *testing.T) {
+	router := test{{ .Table.GoName }}HandlersRouter()
 	tests := []struct {
 		name   string
 		method string
 		url    string
 		body   string
 	}{
-{{- range .Tables }}
-		{name: "get all {{ .Name }}", method: http.MethodGet, url: "{{ .RouteBase }}"},
-		{name: "create {{ .Singular }}", method: http.MethodPost, url: "{{ .RouteBase }}", body: ` + "`{{ createJSONBody .CreateCols }}`" + `},
-		{name: "delete all {{ .Name }}", method: http.MethodDelete, url: "{{ .RouteBase }}"},
-{{- range .Endpoints }}
+{{- if .Queries.GetAll }}
+		{name: "get all {{ .Table.Name }}", method: http.MethodGet, url: "{{ .Table.RouteBase }}"},
+{{- end }}
+{{- if .Queries.Create }}
+		{name: "create {{ .Table.Singular }}", method: http.MethodPost, url: "{{ .Table.RouteBase }}", body: ` + "`{{ createJSONBody .Table.CreateCols }}`" + `},
+{{- end }}
+{{- if .Queries.DeleteAll }}
+		{name: "delete all {{ .Table.Name }}", method: http.MethodDelete, url: "{{ .Table.RouteBase }}"},
+{{- end }}
+{{- range .Table.Endpoints }}
 		{name: "{{ .Name }}", method: "{{ .Method }}", url: "{{ testURL . }}", body: ` + "`{{ endpointJSONBody . }}`" + `},
 {{- end }}
-		{name: "get {{ .Singular }} by id", method: http.MethodGet, url: "{{ .RouteBase }}/00000000-0000-0000-0000-000000000001"},
-		{name: "delete {{ .Singular }}", method: http.MethodDelete, url: "{{ .RouteBase }}/00000000-0000-0000-0000-000000000001"},
+{{- if .Queries.GetByID }}
+		{name: "get {{ .Table.Singular }} by id", method: http.MethodGet, url: "{{ .Table.RouteBase }}/00000000-0000-0000-0000-000000000001"},
+{{- end }}
+{{- if .Queries.Delete }}
+		{name: "delete {{ .Table.Singular }}", method: http.MethodDelete, url: "{{ .Table.RouteBase }}/00000000-0000-0000-0000-000000000001"},
 {{- end }}
 	}
 	for _, tt := range tests {
@@ -784,6 +860,7 @@ func TestGeneratedEndpoints(t *testing.T) {
 		})
 	}
 }
+{{- end }}
 `
 
 const appMainTemplate = `package main
@@ -847,20 +924,33 @@ func run() error {
 		{{ .Singular }}Service,
 {{- end }}
 	)
+{{- if not (anyGeneratedEndpointTests .Tables) }}
+	_ = httpServer
+{{- end }}
 
 	router := mux.NewRouter()
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("Generated API"))
 	}).Methods(http.MethodGet)
 {{- range .Tables }}
+{{- if .Queries.GetAll }}
 	router.HandleFunc("{{ .RouteBase }}", httpServer.GetAll{{ .GoPlural }}).Methods(http.MethodGet)
+{{- end }}
+{{- if .Queries.Create }}
 	router.HandleFunc("{{ .RouteBase }}", httpServer.Create{{ .GoName }}).Methods(http.MethodPost)
+{{- end }}
+{{- if .Queries.DeleteAll }}
 	router.HandleFunc("{{ .RouteBase }}", httpServer.DeleteAll{{ .GoPlural }}).Methods(http.MethodDelete)
+{{- end }}
 {{- range .Endpoints }}
 	router.HandleFunc("{{ .Path }}", httpServer.{{ .Name }}).Methods("{{ .Method }}")
 {{- end }}
+{{- if .Queries.GetByID }}
 	router.HandleFunc("{{ .RouteBase }}/{id}", httpServer.Get{{ .GoName }}ByID).Methods(http.MethodGet)
+{{- end }}
+{{- if .Queries.Delete }}
 	router.HandleFunc("{{ .RouteBase }}/{id}", httpServer.Delete{{ .GoName }}).Methods(http.MethodDelete)
+{{- end }}
 {{- end }}
 
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: router}
@@ -900,14 +990,23 @@ DB_DSN ?= postgres://$(DB_USER):$(DB_PASS)@localhost:5432/$(DB_NAME)?sslmode=dis
 HTTP_ADDR ?= :8080
 DEBUG_ERRORS ?= 1
 GOCACHE ?= $(CURDIR)/.cache/go-build
+GOLANGCI_LINT_VERSION ?= latest
+REST_BINARY ?= $(BUILD_DIR)/rest
 
 export
 
-.PHONY: build run test clean db migrate-status migrate-up migrate-down migrate-create
+.PHONY: build build-rest rest-generate run test clean db migrate-status migrate-up migrate-down migrate-create install-lint lint
 
 build:
 	@mkdir -p $(BUILD_DIR)
 	go build -o $(BUILD_DIR)/$(APP_NAME) ./cmd
+
+build-rest:
+	@mkdir -p $(BUILD_DIR)
+	go build -o $(REST_BINARY) ./cmd/rest
+
+rest-generate: build-rest
+	$(REST_BINARY) generate
 
 run:
 	@mkdir -p $(BUILD_DIR) && \
@@ -919,6 +1018,13 @@ run:
 
 test:
 	go test -race -v ./...
+
+install-lint:
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
+lint:
+	@command -v golangci-lint >/dev/null 2>&1 || $(MAKE) install-lint
+	golangci-lint run ./...
 
 clean:
 	rm -rf $(BUILD_DIR)

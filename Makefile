@@ -12,14 +12,23 @@ DB_DSN ?= postgres://$(DB_USER):$(DB_PASS)@localhost:5432/$(DB_NAME)?sslmode=dis
 HTTP_ADDR ?= :8080
 DEBUG_ERRORS ?= 1
 GOCACHE ?= $(CURDIR)/.cache/go-build
+GOLANGCI_LINT_VERSION ?= latest
+REST_BINARY ?= $(BUILD_DIR)/rest
 
 export
 
-.PHONY: build run test clean db migrate-status migrate-up migrate-down migrate-create
+.PHONY: build build-rest rest-generate run test clean db migrate-status migrate-up migrate-down migrate-create install-lint lint
 
 build:
 	@mkdir -p $(BUILD_DIR)
 	go build -o $(BUILD_DIR)/$(APP_NAME) ./cmd
+
+build-rest:
+	@mkdir -p $(BUILD_DIR)
+	go build -o $(REST_BINARY) ./cmd/rest
+
+rest-generate: build-rest
+	$(REST_BINARY) generate
 
 run:
 	@mkdir -p $(BUILD_DIR) && \
@@ -31,6 +40,13 @@ run:
 
 test:
 	go test -race -v ./...
+
+install-lint:
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
+lint:
+	@command -v golangci-lint >/dev/null 2>&1 || $(MAKE) install-lint
+	golangci-lint run ./...
 
 clean:
 	rm -rf $(BUILD_DIR)

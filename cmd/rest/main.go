@@ -16,7 +16,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 || args[0] != "generate" {
-		return fmt.Errorf("usage: http generate [-sqlc sqlc.yaml] [-httpgen httpgen.yaml] [-out .]")
+		return fmt.Errorf("usage: rest generate [-sqlc sqlc.yaml] [-httpgen httpgen.yaml] [-out .]")
 	}
 
 	opts := generator.Options{
