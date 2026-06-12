@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/repomz/viewer_backend/internal/generator"
+	"github.com/repomz/rest_generator/internal/generator"
 )
 
 func main() {
