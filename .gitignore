@@ -8,6 +8,9 @@
 *.so
 *.dylib
 
+# internal/sql directory
+internal/sql
+
 # binary directory
 bin/
 
