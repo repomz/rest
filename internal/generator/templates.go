@@ -743,7 +743,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-{{ if tableServiceNeedsTime .Table -}}
+{{ if tableTestNeedsTime .Table -}}
 	"time"
 {{ end }}
 	"github.com/gorilla/mux"

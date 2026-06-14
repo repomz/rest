@@ -34,43 +34,43 @@ curl -sS "http://localhost:8080/studies/patient/$patient" \
 # Фильтрация studies
 
 # Поиск по дате, ожидается 3
-curl -sS -G http://localhost:8080/studies/search \
-  --data-urlencode 'time_beginning=2025-05-13' \
+curl -sS -G http://localhost:8080/studies \
+  --data-urlencode 'date=2025-05-13' \
   | jq 'length'
 
 # Поиск по хирургу, ожидается 4
-curl -sS -G http://localhost:8080/studies/search \
+curl -sS -G http://localhost:8080/studies \
   --data-urlencode 'surgeon=идрисов' \
   | jq 'length'
 
 # Поиск по типу операции, ожидается 4
-curl -sS -G http://localhost:8080/studies/search \
-  --data-urlencode 'study_type=каг' \
+curl -sS -G http://localhost:8080/studies \
+  --data-urlencode 'type=каг' \
   | jq 'length'
 
 # Поиск по дате + хирург
-curl -sS -G http://localhost:8080/studies/search \
-  --data-urlencode 'time_beginning=2025-05-13' \
+curl -sS -G http://localhost:8080/studies \
+  --data-urlencode 'date=2025-05-13' \
   --data-urlencode 'surgeon=идрисов' \
   | jq 'length'
 
 # Поиск по дате + тип операции
-curl -sS -G http://localhost:8080/studies/search \
-  --data-urlencode 'time_beginning=2025-05-13' \
-  --data-urlencode 'study_type=стент_кор' \
+curl -sS -G http://localhost:8080/studies \
+  --data-urlencode 'date=2025-05-13' \
+  --data-urlencode 'type=стент_кор' \
   | jq 'length'
 
 # Поиск по хирургу + тип операции
-curl -sS -G http://localhost:8080/studies/search \
+curl -sS -G http://localhost:8080/studies \
   --data-urlencode 'surgeon=идрисов' \
-  --data-urlencode 'study_type=стент_кор' \
+  --data-urlencode 'type=стент_кор' \
   | jq 'length'
 
 # Поиск по всем трём фильтрам, ожидается 1
-curl -sS -G http://localhost:8080/studies/search \
-  --data-urlencode 'time_beginning=2025-05-13' \
+curl -sS -G http://localhost:8080/studies \
+  --data-urlencode 'date=2025-05-13' \
   --data-urlencode 'surgeon=идрисов' \
-  --data-urlencode 'study_type=стент_кор' \
+  --data-urlencode 'type=стент_кор' \
   | jq 'length'
 ```
 

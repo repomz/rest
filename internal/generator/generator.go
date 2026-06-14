@@ -2,7 +2,6 @@ package generator
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"go/format"
 	"os"
@@ -15,9 +14,8 @@ import (
 )
 
 type Options struct {
-	SQLCPath    string
-	HTTPGenPath string
-	OutDir      string
+	SQLCPath string
+	OutDir   string
 }
 
 type sqlcConfig struct {
@@ -117,10 +115,6 @@ func Generate(opts Options) error {
 	if opts.OutDir == "" {
 		opts.OutDir = "."
 	}
-	if opts.HTTPGenPath == "" {
-		opts.HTTPGenPath = filepath.Join(opts.OutDir, "httpgen.yaml")
-	}
-
 	cfg, err := readSQLCConfig(opts.SQLCPath)
 	if err != nil {
 		return err
@@ -147,15 +141,11 @@ func Generate(opts Options) error {
 	if err != nil {
 		return err
 	}
-	httpGenPath := opts.HTTPGenPath
-	if !filepath.IsAbs(httpGenPath) {
-		httpGenPath = filepath.Join(opts.OutDir, httpGenPath)
-	}
-	configuredEndpoints, err := readHTTPGenConfig(httpGenPath, queryMeta)
+	optionalQueryParams, err := readSQLCOptionalQueryParams(filepath.Join(opts.OutDir, cfg.QueriesDir))
 	if err != nil {
 		return err
 	}
-	endpoints := append(autoEndpoints(tables, queryMeta, paramStructs, configuredEndpoints), configuredEndpoints...)
+	endpoints := autoEndpoints(tables, queryMeta, paramStructs, optionalQueryParams)
 	attachEndpoints(tables, endpoints)
 	for i := range tables {
 		tables[i].Queries = detectQueries(queryMeta, tables[i])
@@ -443,121 +433,6 @@ func readQuerierMeta(path string) (map[string]queryMeta, error) {
 	return result, nil
 }
 
-func readHTTPGenConfig(path string, queries map[string]queryMeta) ([]endpoint, error) {
-	b, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var endpoints []endpoint
-	var current *endpoint
-	var currentParam *endpointParam
-	inEndpoints := false
-	inParams := false
-
-	for _, raw := range strings.Split(string(b), "\n") {
-		if i := strings.Index(raw, "#"); i >= 0 {
-			raw = raw[:i]
-		}
-		if strings.TrimSpace(raw) == "" {
-			continue
-		}
-		indent := len(raw) - len(strings.TrimLeft(raw, " "))
-		line := strings.TrimSpace(raw)
-		if line == "endpoints:" {
-			inEndpoints = true
-			continue
-		}
-		if !inEndpoints {
-			continue
-		}
-		if strings.HasPrefix(line, "- ") && indent == 2 {
-			if current != nil {
-				endpoints = append(endpoints, finalizeEndpoint(*current, queries))
-			}
-			current = &endpoint{Method: "GET", Result: "many"}
-			currentParam = nil
-			inParams = false
-			applyEndpointKV(current, strings.TrimSpace(strings.TrimPrefix(line, "- ")))
-			continue
-		}
-		if current == nil {
-			continue
-		}
-		if line == "params:" {
-			inParams = true
-			currentParam = nil
-			continue
-		}
-		if inParams && strings.HasPrefix(line, "- ") {
-			param := endpointParam{}
-			applyParamKV(&param, strings.TrimSpace(strings.TrimPrefix(line, "- ")))
-			current.Params = append(current.Params, param)
-			currentParam = &current.Params[len(current.Params)-1]
-			continue
-		}
-		if inParams && currentParam != nil {
-			applyParamKV(currentParam, line)
-			continue
-		}
-		applyEndpointKV(current, line)
-	}
-	if current != nil {
-		endpoints = append(endpoints, finalizeEndpoint(*current, queries))
-	}
-	return endpoints, nil
-}
-
-func applyEndpointKV(ep *endpoint, line string) {
-	key, value, ok := splitYAMLKV(line)
-	if !ok {
-		return
-	}
-	switch key {
-	case "table":
-		ep.TableName = value
-	case "name":
-		ep.Name = value
-	case "method":
-		ep.Method = strings.ToUpper(value)
-	case "path":
-		ep.Path = value
-	case "query":
-		ep.Query = value
-	case "result":
-		ep.Result = value
-	}
-}
-
-func applyParamKV(param *endpointParam, line string) {
-	key, value, ok := splitYAMLKV(line)
-	if !ok {
-		return
-	}
-	switch key {
-	case "name":
-		param.Name = value
-	case "source":
-		param.Source = value
-	case "type":
-		param.Type = value
-	case "required":
-		param.Required = value == "true"
-	}
-}
-
-func splitYAMLKV(line string) (string, string, bool) {
-	parts := strings.SplitN(line, ":", 2)
-	if len(parts) != 2 {
-		return "", "", false
-	}
-	key := strings.TrimSpace(parts[0])
-	value := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
-	return key, value, true
-}
-
 func finalizeEndpoint(ep endpoint, queries map[string]queryMeta) endpoint {
 	ep.Name = exported(ep.Name)
 	if meta, ok := queries[ep.Query]; ok {
@@ -632,11 +507,39 @@ func readSQLCParamStructs(dbOutDir string) (map[string][]endpointParam, error) {
 	return result, nil
 }
 
-func autoEndpoints(tables []table, queries map[string]queryMeta, paramStructs map[string][]endpointParam, configured []endpoint) []endpoint {
-	configuredQueries := map[string]bool{}
-	for _, ep := range configured {
-		configuredQueries[ep.Query] = true
+func readSQLCOptionalQueryParams(queriesDir string) (map[string]map[string]bool, error) {
+	files, err := filepath.Glob(filepath.Join(queriesDir, "*.sql"))
+	if err != nil {
+		return nil, err
 	}
+	result := map[string]map[string]bool{}
+	queryRe := regexp.MustCompile(`(?m)^--\s*name:\s*(\w+)\s+:\w+\s*$`)
+	nargRe := regexp.MustCompile(`sqlc\.narg\(['"](\w+)['"]\)`)
+	for _, file := range files {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		text := string(b)
+		matches := queryRe.FindAllStringSubmatchIndex(text, -1)
+		for i, match := range matches {
+			end := len(text)
+			if i+1 < len(matches) {
+				end = matches[i+1][0]
+			}
+			queryName := text[match[2]:match[3]]
+			for _, narg := range nargRe.FindAllStringSubmatch(text[match[1]:end], -1) {
+				if result[queryName] == nil {
+					result[queryName] = map[string]bool{}
+				}
+				result[queryName][narg[1]] = true
+			}
+		}
+	}
+	return result, nil
+}
+
+func autoEndpoints(tables []table, queries map[string]queryMeta, paramStructs map[string][]endpointParam, optionalQueryParams map[string]map[string]bool) []endpoint {
 	var endpoints []endpoint
 	names := make([]string, 0, len(queries))
 	for name := range queries {
@@ -644,12 +547,12 @@ func autoEndpoints(tables []table, queries map[string]queryMeta, paramStructs ma
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if configuredQueries[name] {
-			continue
-		}
 		meta := queries[name]
 		for _, tbl := range tables {
 			if !queryBelongsToTable(name, tbl) {
+				continue
+			}
+			if isStandardQuery(name, queries, tbl) {
 				continue
 			}
 			ep := endpoint{
@@ -670,9 +573,10 @@ func autoEndpoints(tables []table, queries map[string]queryMeta, paramStructs ma
 				if paramName == "" {
 					paramName = "value"
 				}
-				ep.Params = []endpointParam{{Name: paramName, Source: source, Type: endpointTypeFromGo(meta.ArgType), Required: true}}
+				ep.Params = []endpointParam{{Name: paramName, Source: source, Type: endpointTypeFromGo(meta.ArgType), Required: !optionalQueryParams[name][paramName]}}
 			case "struct":
 				for _, param := range paramStructs[meta.ArgType] {
+					param.Required = !optionalQueryParams[name][param.Name]
 					param.Source = source
 					ep.Params = append(ep.Params, param)
 				}
@@ -684,6 +588,28 @@ func autoEndpoints(tables []table, queries map[string]queryMeta, paramStructs ma
 		}
 	}
 	return endpoints
+}
+
+func endpointBelongsToTable(ep endpoint, tbl table) bool {
+	return ep.TableName == tbl.Name || ep.TableName == tbl.Singular || ep.TableName == tbl.GoName
+}
+
+func isStandardQuery(name string, queries map[string]queryMeta, tbl table) bool {
+	standard := detectQueries(queries, tbl)
+	switch name {
+	case "Create" + tbl.GoName:
+		return standard.Create
+	case "Get" + tbl.GoPlural:
+		return standard.GetAll
+	case "Get" + tbl.GoName + "ByID":
+		return standard.GetByID
+	case "SoftDelete" + tbl.GoName:
+		return standard.Delete
+	case "SoftDeleteAll" + tbl.GoPlural:
+		return standard.DeleteAll
+	default:
+		return false
+	}
 }
 
 func queryBelongsToTable(queryName string, tbl table) bool {
@@ -699,70 +625,65 @@ func autoEndpointPath(tbl table, queryName string) string {
 }
 
 func applyAutoEndpointPathAndSources(ep endpoint, tbl table) endpoint {
-	if ep.Method != "GET" && ep.Method != "DELETE" {
-		return ep
-	}
-	byParams := byClauseParamNames(ep.Query)
-	if len(byParams) == 0 {
-		ep.Path = tbl.RouteBase
-		return ep
-	}
-	paramSet := map[string]bool{}
-	for _, name := range byParams {
-		paramSet[name] = true
-	}
-	for i := range ep.Params {
-		if paramSet[ep.Params[i].Name] {
+	if ep.Method == "GET" || ep.Method == "DELETE" {
+		if hasOptionalEndpointParams(ep.Params) {
+			for i := range ep.Params {
+				ep.Params[i].Source = "query"
+			}
+			ep.Path = tbl.RouteBase
+			return ep
+		}
+		for i := range ep.Params {
 			ep.Params[i].Source = "path"
 		}
+		if len(ep.Params) == 0 {
+			ep.Path = tbl.RouteBase
+		} else {
+			ep.Path = tbl.RouteBase + pathSegmentsForEndpointParams(ep.Params)
+		}
+		return ep
 	}
-	ep.Path = tbl.RouteBase + pathSegmentsForParams(byParams)
+
+	if ep.Method == "PATCH" || ep.Method == "PUT" {
+		for i := range ep.Params {
+			if ep.Params[i].Name == "id" && ep.Params[i].Type == "uuid" {
+				ep.Params[i].Source = "path"
+			}
+		}
+		if hasPathEndpointParam(ep.Params) {
+			ep.Path = tbl.RouteBase + "/{id}/" + kebab(strings.TrimPrefix(ep.Query, "Update"+tbl.GoName))
+		}
+	}
 	return ep
 }
 
-func byClauseParamNames(queryName string) []string {
-	words := splitNameWords(queryName)
-	for i, word := range words {
-		if strings.EqualFold(word, "by") && i+1 < len(words) {
-			return paramNamesFromWords(words[i+1:])
+func hasOptionalEndpointParams(params []endpointParam) bool {
+	for _, param := range params {
+		if !param.Required {
+			return true
 		}
 	}
-	return nil
+	return false
 }
 
-func paramNamesFromWords(words []string) []string {
-	var result []string
-	var current []string
-	flush := func() {
-		if len(current) == 0 {
-			return
+func hasPathEndpointParam(params []endpointParam) bool {
+	for _, param := range params {
+		if param.Source == "path" {
+			return true
 		}
-		for i := range current {
-			current[i] = strings.ToLower(current[i])
-		}
-		result = append(result, strings.Join(current, "_"))
-		current = nil
 	}
-	for _, word := range words {
-		if strings.EqualFold(word, "and") || strings.EqualFold(word, "or") {
-			flush()
-			continue
-		}
-		current = append(current, word)
-	}
-	flush()
-	return result
+	return false
 }
 
-func pathSegmentsForParams(params []string) string {
+func pathSegmentsForEndpointParams(params []endpointParam) string {
 	var b strings.Builder
 	for _, param := range params {
-		label := strings.TrimSuffix(param, "_id")
+		label := strings.TrimSuffix(param.Name, "_id")
 		label = strings.ReplaceAll(label, "_", "-")
 		b.WriteString("/")
 		b.WriteString(label)
 		b.WriteString("/{")
-		b.WriteString(param)
+		b.WriteString(param.Name)
 		b.WriteString("}")
 	}
 	return b.String()
@@ -884,7 +805,7 @@ func zeroValue(goType string) string {
 func attachEndpoints(tables []table, endpoints []endpoint) {
 	for _, ep := range endpoints {
 		for i := range tables {
-			if ep.TableName == tables[i].Name || ep.TableName == tables[i].Singular || ep.TableName == tables[i].GoName {
+			if endpointBelongsToTable(ep, tables[i]) {
 				tables[i].Endpoints = append(tables[i].Endpoints, ep)
 			}
 		}
@@ -898,7 +819,7 @@ func detectQueries(queries map[string]queryMeta, tbl table) querySet {
 	}
 	return querySet{
 		Create:    create,
-		GetAll:    returnsManyDomainRows(queries["Get"+tbl.GoPlural], tbl),
+		GetAll:    returnsManyDomainRows(queries["Get"+tbl.GoPlural], tbl) && queries["Get"+tbl.GoPlural].ArgKind == "none",
 		GetByID:   returnsOneDomainRow(queries["Get"+tbl.GoName+"ByID"], tbl),
 		Delete:    returnsOnlyError(queries["SoftDelete"+tbl.GoName]),
 		DeleteAll: returnsOnlyError(queries["SoftDeleteAll"+tbl.GoPlural]),
@@ -1042,6 +963,19 @@ func renderFile(path, tmpl string, data renderData) error {
 			return false
 		},
 		"tableServiceNeedsTime": func(tbl table) bool {
+			for _, ep := range tbl.Endpoints {
+				if strings.Contains(ep.ResponseType, "time.Time") {
+					return true
+				}
+			}
+			return false
+		},
+		"tableTestNeedsTime": func(tbl table) bool {
+			for _, col := range tbl.Columns {
+				if col.NeedsTime {
+					return true
+				}
+			}
 			for _, ep := range tbl.Endpoints {
 				if strings.Contains(ep.ResponseType, "time.Time") {
 					return true

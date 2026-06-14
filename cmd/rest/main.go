@@ -16,13 +16,12 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 || args[0] != "generate" {
-		return fmt.Errorf("usage: rest generate [-sqlc sqlc.yaml] [-httpgen httpgen.yaml] [-out .]")
+		return fmt.Errorf("usage: rest generate [-sqlc sqlc.yaml] [-out .]")
 	}
 
 	opts := generator.Options{
-		SQLCPath:    "sqlc.yaml",
-		HTTPGenPath: "httpgen.yaml",
-		OutDir:      ".",
+		SQLCPath: "sqlc.yaml",
+		OutDir:   ".",
 	}
 
 	for i := 1; i < len(args); i++ {
@@ -39,12 +38,6 @@ func run(args []string) error {
 				return fmt.Errorf("-out requires a path")
 			}
 			opts.OutDir = args[i]
-		case "-httpgen":
-			i++
-			if i >= len(args) {
-				return fmt.Errorf("-httpgen requires a path")
-			}
-			opts.HTTPGenPath = args[i]
 		default:
 			return fmt.Errorf("unknown argument %q", args[i])
 		}
