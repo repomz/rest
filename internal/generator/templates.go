@@ -796,7 +796,11 @@ func (fake{{ $.Table.GoName }}Service) {{ .Name }}(ctx context.Context, params d
 {{ end }}
 
 func test{{ .Table.GoName }}HandlersRouter() *mux.Router {
-	httpServer := NewHttpServer(fake{{ .Table.GoName }}Service{})
+	httpServer := NewHttpServer(
+{{- range .Tables }}
+		fake{{ .GoName }}Service{},
+{{- end }}
+	)
 	router := mux.NewRouter()
 {{- if .Queries.GetAll }}
 	router.HandleFunc("{{ .Table.RouteBase }}", httpServer.GetAll{{ .Table.GoPlural }}).Methods(http.MethodGet)
@@ -951,7 +955,7 @@ func run() error {
 {{- if .Queries.Delete }}
 	router.HandleFunc("{{ .RouteBase }}/{id}", httpServer.Delete{{ .GoName }}).Methods(http.MethodDelete)
 {{- end }}
-{{- end }}
+{{ end }}
 
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: router}
 	stopped := make(chan struct{})
