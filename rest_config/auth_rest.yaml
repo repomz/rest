@@ -1,0 +1,301 @@
+# ==============================================================================
+# REST GENERATOR: AUTH (КОНТРАКТ БУДУЩЕЙ ГЕНЕРАЦИИ)
+# ==============================================================================
+# Включение выполняется только через auth: enable в rest.yaml.
+# Сейчас генератор проверит переключатель и сообщит, что реализация ещё недоступна.
+# Вложенные enabled-поля используют YAML boolean: true или false.
+version: "0.1.0"
+
+# ------------------------------------------------------------------------------
+# USER IDENTITY SOURCE
+# ------------------------------------------------------------------------------
+identity:
+  # Допустимые provider: sql, mongo.
+  provider: sql
+  model: User
+  source:
+    table: users
+    collection: users
+  fields:
+    id: id
+    username: email
+    password_hash: password_hash
+    roles: roles
+    status: status
+    email_verified: email_verified
+  active_statuses: [active]
+
+# ------------------------------------------------------------------------------
+# AUTH ENDPOINTS
+# ------------------------------------------------------------------------------
+# method: GET, POST, PUT, PATCH, DELETE. public: true не требует авторизации.
+endpoints:
+  base_path: /auth
+  register:
+    enabled: true
+    method: POST
+    path: /register
+    public: true
+  login:
+    enabled: true
+    method: POST
+    path: /login
+    public: true
+  refresh:
+    enabled: true
+    method: POST
+    path: /refresh
+    public: true
+  logout:
+    enabled: true
+    method: POST
+    path: /logout
+    public: false
+  logout_all:
+    enabled: true
+    method: POST
+    path: /logout-all
+    public: false
+  me:
+    enabled: true
+    method: GET
+    path: /me
+    public: false
+  verify_email:
+    enabled: false
+    method: POST
+    path: /verify-email
+    public: true
+  request_password_reset:
+    enabled: false
+    method: POST
+    path: /password-reset/request
+    public: true
+  confirm_password_reset:
+    enabled: false
+    method: POST
+    path: /password-reset/confirm
+    public: true
+
+# ------------------------------------------------------------------------------
+# AUTHENTICATION
+# ------------------------------------------------------------------------------
+authentication:
+  default_strategy: jwt
+  strategies:
+    - type: jwt
+      enabled: true
+      algorithm: RS256                # Варианты: HS256, RS256, ES256.
+      issuer: myapp
+      audiences: [myapp-api]
+      clock_skew: 30s
+
+      access_token:
+        duration: 15m
+        # Для RS256/ES256 используются пути из env. Для HS256 используется secret_env.
+        private_key_file_env: JWT_PRIVATE_KEY_FILE
+        public_key_file_env: JWT_PUBLIC_KEY_FILE
+        secret_env: ""
+
+      refresh_token:
+        enabled: true
+        duration: 168h
+        rotation: true
+        reuse_detection: true
+        revoke_on_logout: true
+        revoke_all_on_password_change: true
+        token_bytes: 64
+        # В хранилище записывается только hash refresh-токена.
+        storage:
+          provider: sql               # Варианты: sql, mongo.
+          table: auth_refresh_tokens
+          collection: auth_refresh_tokens
+          hash_algorithm: sha256
+          cleanup_interval: 1h
+
+      claims:
+        subject_field: id
+        include: [email, roles]
+        include_jti: true
+
+      transport:
+        type: bearer                  # Варианты: bearer, cookie.
+        header: Authorization
+        scheme: Bearer
+
+    - type: basic
+      enabled: false
+      credentials_source: database    # Варианты: database, htpasswd, ldap.
+      username_field: email
+      password_field: password_hash
+      htpasswd_file_env: BASIC_AUTH_HTPASSWD_FILE
+      ldap:
+        url_env: LDAP_URL
+        bind_dn_env: LDAP_BIND_DN
+        bind_password_env: LDAP_BIND_PASSWORD
+        user_base_dn: ""
+        user_filter: "(mail={{username}})"
+
+    - type: api_key
+      enabled: false
+      location: header                # Варианты: header, query, cookie.
+      header_name: X-API-Key
+      query_parameter: api_key
+      cookie_name: api_key
+      key_prefix: sk_live_
+      key_bytes: 32
+      storage:
+        provider: sql
+        table: auth_api_keys
+        collection: auth_api_keys
+        hash_algorithm: sha256
+      rotation:
+        enabled: true
+        overlap_duration: 24h
+
+# ------------------------------------------------------------------------------
+# PASSWORDS
+# ------------------------------------------------------------------------------
+password:
+  algorithm: argon2id                 # Варианты: argon2id, bcrypt.
+  bcrypt:
+    cost: 12
+  argon2id:
+    memory_kib: 65536
+    iterations: 3
+    parallelism: 2
+    salt_bytes: 16
+    key_bytes: 32
+  policy:
+    minimum_length: 12
+    maximum_length: 128
+    require_uppercase: false
+    require_lowercase: true
+    require_number: true
+    require_special: false
+  password_history:
+    enabled: false
+    count: 5
+
+# ------------------------------------------------------------------------------
+# AUTHORIZATION
+# ------------------------------------------------------------------------------
+authorization:
+  enabled: true
+  type: rbac                          # Сейчас планируется: rbac.
+  default_policy: deny                # Варианты: deny, allow; рекомендуется deny.
+  role_claim: roles
+  roles:
+    - name: admin
+      permissions: ["*:*"]
+    - name: user
+      permissions: ["profile:read:self", "profile:update:self"]
+  endpoint_permissions:
+    - method: GET
+      path: /auth/me
+      require_any: ["profile:read:self"]
+    - method: POST
+      path: /auth/logout-all
+      require_any: ["profile:update:self"]
+  public_endpoints:
+    # Эти пути объединяются с endpoint-ами, у которых public: true.
+    - method: GET
+      path: /
+    - method: GET
+      path: /swagger/openapi.yaml
+    - method: GET
+      path: /swagger/index.html
+
+# ------------------------------------------------------------------------------
+# COOKIES AND CSRF
+# ------------------------------------------------------------------------------
+cookies:
+  enabled: false
+  access_token_name: access_token
+  refresh_token_name: refresh_token
+  secure: true
+  http_only: true
+  same_site: strict                   # Варианты: strict, lax, none.
+  domain: ""
+  path: /
+  csrf:
+    enabled: true
+    header_name: X-CSRF-Token
+    cookie_name: csrf_token
+
+# ------------------------------------------------------------------------------
+# ADDITIONAL SECURITY FEATURES
+# ------------------------------------------------------------------------------
+features:
+  email_verification:
+    enabled: false
+    required_for_login: true
+    token_duration: 24h
+    token_bytes: 32
+    storage:
+      provider: sql
+      table: auth_email_verification_tokens
+      collection: auth_email_verification_tokens
+      hash_algorithm: sha256
+
+  password_reset:
+    enabled: false
+    token_duration: 1h
+    token_bytes: 32
+    invalidate_sessions: true
+    storage:
+      provider: sql
+      table: auth_password_reset_tokens
+      collection: auth_password_reset_tokens
+      hash_algorithm: sha256
+
+  email:
+    provider: smtp                    # Сейчас планируется: smtp.
+    from_address: no-reply@example.com
+    public_app_url: https://example.com
+    smtp:
+      host_env: SMTP_HOST
+      port_env: SMTP_PORT
+      username_env: SMTP_USERNAME
+      password_env: SMTP_PASSWORD
+      tls: true
+    templates:
+      verification: templates/auth/verify_email.html
+      password_reset: templates/auth/password_reset.html
+
+  rate_limiting:
+    enabled: true
+    backend: memory                   # Варианты: memory, redis.
+    redis_url_env: REDIS_URL
+    key: ip_and_username              # Варианты: ip, username, ip_and_username.
+    login:
+      attempts: 5
+      window: 15m
+      block_duration: 15m
+    refresh:
+      attempts: 30
+      window: 1m
+
+  session_management:
+    enabled: true
+    max_sessions_per_user: 5
+    track_ip: true
+    track_user_agent: true
+    idle_timeout: 24h
+    absolute_timeout: 720h
+
+  audit:
+    enabled: true
+    events:
+      - login_succeeded
+      - login_failed
+      - logout
+      - token_refreshed
+      - password_changed
+      - password_reset
+      - api_key_created
+      - api_key_revoked
+    storage:
+      provider: logging               # Варианты: logging, sql, mongo.
+      table: auth_audit_log
+      collection: auth_audit_log

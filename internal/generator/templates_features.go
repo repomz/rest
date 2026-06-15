@@ -1,0 +1,182 @@
+package generator
+
+const metricsTemplate = `package metrics
+
+import (
+	"database/sql"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/gorilla/mux"
+)
+
+const namespace = {{ printf "%q" (defaultString .Features.Metrics.Namespace "app") }}
+
+type values struct {
+	count uint64
+	duration float64
+	responseBytes uint64
+}
+
+var (
+	mu sync.Mutex
+	requests = map[string]*values{}
+	inFlight int64
+)
+
+type dbStats struct {
+	OpenConnections int
+	InUse int
+	Idle int
+}
+
+var readDBStats func() dbStats
+
+func SetDBStatsProvider(provider func() sql.DBStats) {
+	readDBStats = func() dbStats {
+		stats := provider()
+		return dbStats{OpenConnections: stats.OpenConnections, InUse: stats.InUse, Idle: stats.Idle}
+	}
+}
+
+func Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&inFlight, 1)
+		defer atomic.AddInt64(&inFlight, -1)
+		started := time.Now()
+		recorder := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(recorder, r)
+		route := r.URL.Path
+		if current := mux.CurrentRoute(r); current != nil {
+			if template, err := current.GetPathTemplate(); err == nil {
+				route = template
+			}
+		}
+		key := strings.Join([]string{r.Method, route, strconv.Itoa(recorder.status)}, "\x00")
+		mu.Lock()
+		value := requests[key]
+		if value == nil {
+			value = &values{}
+			requests[key] = value
+		}
+		value.count++
+		value.duration += time.Since(started).Seconds()
+		value.responseBytes += uint64(recorder.bytes)
+		mu.Unlock()
+	})
+}
+
+func Handler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	{{- if .Features.Metrics.InFlightRequests }}
+	fmt.Fprintf(w, "%s_http_requests_in_flight %d\n", namespace, atomic.LoadInt64(&inFlight))
+	{{- end }}
+	mu.Lock()
+	defer mu.Unlock()
+	for key, value := range requests {
+		parts := strings.Split(key, "\x00")
+		labels := make([]string, 0, 3)
+		{{- if contains .Features.Metrics.Labels "method" }}
+		labels = append(labels, fmt.Sprintf("method=%q", parts[0]))
+		{{- end }}
+		{{- if contains .Features.Metrics.Labels "route" }}
+		labels = append(labels, fmt.Sprintf("route=%q", parts[1]))
+		{{- end }}
+		{{- if contains .Features.Metrics.Labels "status" }}
+		labels = append(labels, fmt.Sprintf("status=%q", parts[2]))
+		{{- end }}
+		labelSet := strings.Join(labels, ",")
+		{{- if .Features.Metrics.HTTPRequests }}
+		fmt.Fprintf(w, "%s_http_requests_total{%s} %d\n", namespace, labelSet, value.count)
+		{{- end }}
+		{{- if .Features.Metrics.RequestDuration }}
+		fmt.Fprintf(w, "%s_http_request_duration_seconds_sum{%s} %f\n", namespace, labelSet, value.duration)
+		fmt.Fprintf(w, "%s_http_request_duration_seconds_count{%s} %d\n", namespace, labelSet, value.count)
+		{{- end }}
+		{{- if .Features.Metrics.ResponseSize }}
+		fmt.Fprintf(w, "%s_http_response_size_bytes_sum{%s} %d\n", namespace, labelSet, value.responseBytes)
+		{{- end }}
+	}
+	{{- if .Features.Metrics.DatabasePool }}
+	if readDBStats != nil {
+		stats := readDBStats()
+		fmt.Fprintf(w, "%s_db_open_connections %d\n", namespace, stats.OpenConnections)
+		fmt.Fprintf(w, "%s_db_connections_in_use %d\n", namespace, stats.InUse)
+		fmt.Fprintf(w, "%s_db_idle_connections %d\n", namespace, stats.Idle)
+	}
+	{{- end }}
+}
+
+type responseRecorder struct {
+	http.ResponseWriter
+	status int
+	bytes int
+}
+
+func (w *responseRecorder) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *responseRecorder) Write(data []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(data)
+	w.bytes += n
+	return n, err
+}
+`
+
+const dockerfileTemplate = `FROM {{ .Features.Docker.BuildImage }} AS build
+WORKDIR /src
+COPY go.mod ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED={{ if .Features.Docker.CGOEnabled }}1{{ else }}0{{ end }} go build -trimpath -ldflags="-s -w" -o /out/{{ .Features.Docker.Binary }} ./cmd
+
+FROM {{ .Features.Docker.RuntimeImage }}
+RUN addgroup -S {{ .Features.Docker.User }} && adduser -S {{ .Features.Docker.User }} -G {{ .Features.Docker.User }}
+WORKDIR /app
+COPY --from=build /out/{{ .Features.Docker.Binary }} /app/{{ .Features.Docker.Binary }}
+USER {{ .Features.Docker.User }}
+EXPOSE {{ .Features.Docker.Port }}
+{{- if .Features.Docker.Healthcheck }}
+HEALTHCHECK --interval={{ .Features.Docker.HealthInterval }} --timeout={{ .Features.Docker.HealthTimeout }} --retries={{ .Features.Docker.HealthRetries }} CMD wget -qO- http://127.0.0.1:{{ .Features.Docker.Port }}{{ .Features.Docker.HealthPath }} || exit 1
+{{- end }}
+ENTRYPOINT ["/app/{{ .Features.Docker.Binary }}"]
+`
+
+const dockerignoreTemplate = `.git
+.gitignore
+.env
+bin
+logs
+curl
+docs
+*.md
+`
+
+const gitignoreTemplate = `# rest_generator:begin
+bin/
+.cache/
+.env
+logs/
+*.log
+.DS_Store
+# rest_generator:end
+`
+
+const envExampleTemplate = `# Code generated by rest_generator.
+HTTP_ADDR={{ httpAddr .Features.HTTP.Host .Features.HTTP.Port }}
+DB_NAME={{ defaultString .Features.Build.DBName "app_db" }}
+DB_USER={{ defaultString .Features.Build.DBUser "app_user" }}
+DB_PASS={{ defaultString .Features.Build.DBPassword "app_password" }}
+DB_DRIVER=postgres
+DB_OPTIONS={{ defaultString .Features.Build.DBOptions "sslmode=disable" }}
+DB_DSN=postgres://{{ defaultString .Features.Build.DBUser "app_user" }}:{{ defaultString .Features.Build.DBPassword "app_password" }}@localhost:5432/{{ defaultString .Features.Build.DBName "app_db" }}?{{ defaultString .Features.Build.DBOptions "sslmode=disable" }}
+MIGRATIONS_DIR=./{{ defaultString .Features.Build.MigrationsPath "internal/sql/migrations" }}
+DEBUG_ERRORS=0
+`

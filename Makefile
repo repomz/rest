@@ -28,7 +28,7 @@ build-rest:
 	go build -o $(REST_BINARY) ./cmd/rest
 
 rest-generate: build-rest
-	$(REST_BINARY) generate
+	$(REST_BINARY) app generate -config rest_config
 
 run:
 	@mkdir -p $(BUILD_DIR) && \

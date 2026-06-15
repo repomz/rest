@@ -1,0 +1,158 @@
+# ==============================================================================
+# REST GENERATOR: ОСНОВНАЯ КОНФИГУРАЦИЯ ПРИЛОЖЕНИЯ
+# ==============================================================================
+# Команда: rest config generate
+# Правило переключателей: true/enable/enabled/on/yes включают опцию;
+# false/disable/disabled/off/no выключают её.
+
+# ------------------------------------------------------------------------------
+# PROJECT
+# ------------------------------------------------------------------------------
+version: "0.1.0"                     # Версия конфигурации генератора.
+module: github.com/repomz/myapp       # Go module будущего приложения.
+project_path: .                       # Текущий каталог проекта; можно указать другой путь.
+language: golang                      # Варианты: golang, go. Сейчас поддерживается только Go.
+go_version: "1.24.3"                 # Версия в директиве go файла go.mod.
+environment: development              # Примеры: development, testing, staging, production.
+
+# ------------------------------------------------------------------------------
+# HTTP SERVER
+# ------------------------------------------------------------------------------
+http:
+  framework: std                      # Сейчас поддерживается: std (net/http + gorilla/mux).
+  host: 0.0.0.0                       # 0.0.0.0 для всех интерфейсов, 127.0.0.1 только локально.
+  port: 8080
+  base_path: /                        # Примеры: /, /api, /api/v1. Обязательно начинается с /.
+  timeouts:                           # Формат Go duration: 500ms, 5s, 2m, 1h.
+    read_header: 5s
+    read: 30s
+    write: 30s
+    idle: 60s
+    shutdown: 10s
+  limits:
+    max_body_bytes: 1048576           # 0 отключает ограничение; 1048576 = 1 MiB.
+  health:
+    enabled: true
+    path: /health
+  middleware:
+    request_id:
+      enabled: true
+      header: X-Request-ID
+    cors:
+      enabled: true
+      allow_origins: ["*"]            # Примеры: ["*"] или ["https://example.com"].
+      allow_methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+      allow_headers: [Authorization, Content-Type, X-Request-ID]
+      expose_headers: [X-Request-ID]
+      allow_credentials: false        # При true нельзя использовать allow_origins: ["*"].
+      max_age: 12h                    # Формат Go duration.
+    recovery:
+      enabled: true
+      expose_details: false           # true удобно локально, но небезопасно в production.
+
+# ------------------------------------------------------------------------------
+# DATA SOURCES AND AUTHORIZATION
+# ------------------------------------------------------------------------------
+# Детальные настройки находятся в sqlc_rest.yaml, mongo_rest.yaml и auth_rest.yaml.
+# MongoDB и auth описаны как будущие контракты и пока не генерируются.
+sql: enable
+mongo: disable
+auth: disable
+
+# ------------------------------------------------------------------------------
+# LOGGING
+# ------------------------------------------------------------------------------
+logging:
+  enabled: true
+  library: zap                       # Сейчас поддерживается: zap.
+  level: info                        # Варианты zap: debug, info, warn, error, dpanic, panic, fatal.
+  format: json                       # Варианты: json, console.
+  output:
+    type: stdout                     # Варианты: stdout, stderr, file.
+    file: logs/app.log               # Используется только при type: file.
+  rotation:                          # Ротация применяется только к output.type: file.
+    enabled: false
+    max_size_mb: 100
+    max_backups: 10
+    max_age_days: 30
+    compress: true
+  fields:                            # Постоянные поля каждого сообщения журнала.
+    service: myapp
+    environment: development
+
+# ------------------------------------------------------------------------------
+# OPENAPI
+# ------------------------------------------------------------------------------
+openapi:
+  enabled: true
+  output: docs/swagger.yaml
+  title: My App API
+  version: "0.1.0"
+  description: Generated application API
+  server_url: http://localhost:8080
+  with_ui: true
+  ui_path: /swagger/index.html
+  spec_path: /swagger/openapi.yaml
+
+# ------------------------------------------------------------------------------
+# DOCKER (без docker-compose)
+# ------------------------------------------------------------------------------
+docker:
+  enabled: true
+  output: Dockerfile
+  dockerignore_output: .dockerignore
+  build_image: golang:1.24-alpine
+  runtime_image: alpine:3.21
+  binary: app
+  port: 8080                          # Должен совпадать с http.port.
+  user: app                           # Непривилегированный пользователь контейнера.
+  cgo_enabled: false
+  healthcheck:
+    enabled: true                     # Требует http.health.enabled: true.
+    path: /health
+    interval: 30s                    # Формат Docker/Go duration.
+    timeout: 3s
+    retries: 3
+
+# ------------------------------------------------------------------------------
+# TEST ARTIFACTS
+# ------------------------------------------------------------------------------
+testing:
+  handler_tests: enable              # Генерировать Go-тесты HTTP handlers.
+  curl: enabled                      # Генерировать curl/<instance>.md.
+
+# ------------------------------------------------------------------------------
+# OBSERVABILITY
+# ------------------------------------------------------------------------------
+observability:
+  metrics:
+    enabled: false
+    provider: prometheus             # Сейчас поддерживается: prometheus.
+    path: /metrics
+    namespace: myapp
+    collect:
+      http_requests: true
+      request_duration: true
+      response_size: true
+      in_flight_requests: true
+      database_pool: true
+    labels: [method, route, status]   # Допустимые значения: method, route, status.
+
+# ------------------------------------------------------------------------------
+# PROJECT SUPPORT FILES
+# ------------------------------------------------------------------------------
+features:
+  makefile:
+    enabled: false
+    output: Makefile
+  gitignore:
+    enabled: false
+    output: .gitignore
+    append: true                     # true сохраняет пользовательский текст вне managed-блока.
+  env:
+    enabled: false
+    output: .env.example
+    generate_local_env: false        # true дополнительно создаёт .env с теми же значениями.
+  init_db:
+    enabled: false
+    output: init_db.sh               # Генерируется исполняемым файлом.

@@ -1,0 +1,16 @@
+-- Replace "Item" and "items" with the names of your instance and table.
+-- Every sqlc query must have a unique name and a result mode: :one, :many or :exec.
+
+-- Example:
+-- -- name: CreateItem :one
+-- INSERT INTO items (name)
+-- VALUES ($1)
+-- RETURNING *;
+--
+-- -- name: GetItemByID :one
+-- SELECT * FROM items
+-- WHERE id = $1;
+--
+-- -- name: GetItems :many
+-- SELECT * FROM items
+-- ORDER BY created_at DESC;

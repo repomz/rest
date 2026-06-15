@@ -1,0 +1,399 @@
+# ==============================================================================
+# REST GENERATOR: MONGODB (КОНТРАКТ БУДУЩЕЙ ГЕНЕРАЦИИ)
+# ==============================================================================
+# Включение выполняется только через mongo: enable в rest.yaml.
+# Сейчас генератор проверит переключатель и сообщит, что реализация ещё недоступна.
+# Вложенные enabled-поля используют YAML boolean: true или false.
+version: "0.1.0"
+
+# ------------------------------------------------------------------------------
+# DRIVER
+# ------------------------------------------------------------------------------
+
+driver:
+  name: mongo-go-driver              # Сейчас планируется: официальный mongo-go-driver.
+  package: go.mongodb.org/mongo-driver/v2
+  version: "v2"
+
+# ------------------------------------------------------------------------------
+# CONNECTION
+# ------------------------------------------------------------------------------
+connection:
+  # Рекомендуемый способ подключения. Значение URI хранится только в окружении.
+  uri_env: MONGO_URI
+  database: myapp_db
+  auth_source: admin                 # Обычно admin или имя прикладной базы.
+  replica_set: ""
+  tls:
+    enabled: false
+    ca_file_env: MONGO_TLS_CA_FILE
+    certificate_file_env: MONGO_TLS_CERT_FILE
+    private_key_file_env: MONGO_TLS_KEY_FILE
+    insecure_skip_verify: false      # true допустимо только для локальной разработки.
+  timeouts:
+    connect: 10s
+    server_selection: 10s
+    query: 30s
+  pool:
+    enabled: true
+    min_size: 2
+    max_size: 50
+    max_idle_time: 5m
+  retry_reads: true
+  retry_writes: true
+
+# ------------------------------------------------------------------------------
+# GENERATION SETTINGS
+# ------------------------------------------------------------------------------
+generation:
+  package: mongo
+  output: internal/app/mongo
+  repository_output: internal/app/repository/mongorepo
+  create_indexes_on_start: true
+  validate_collections_on_start: false
+  transactions: false               # Требуют replica set или sharded cluster.
+
+# ------------------------------------------------------------------------------
+# MODELS AND FIELDS
+# ------------------------------------------------------------------------------
+# Каждая модель явно определяет, является ли она коллекцией или embedded-типом.
+# Типы полей: string, bool, int32, int64, float64, time, object_id, decimal128,
+# имя embedded-модели и массив любого типа в форме "[]Type".
+models:
+  - name: User
+    collection: users
+    embedded: false
+    timestamps: true
+    soft_delete: false
+    optimistic_lock:
+      enabled: false
+      field: version
+    generation:
+      model: true
+      repository: true
+      service: true
+      http: true
+      operations: [create, get_by_id, list, update, delete] # Допустимые CRUD-операции.
+    fields:
+      - name: id
+        type: object_id
+        bson: _id
+        json: id
+        primary: true
+        generated: true
+        required: true
+
+      - name: email
+        type: string
+        bson: email
+        json: email
+        required: true
+        validation:
+          format: email
+          min_length: 3
+          max_length: 320
+
+      - name: password_hash
+        type: string
+        bson: password_hash
+        json: "-"
+        required: true
+        write_only: true
+
+      - name: status
+        type: string
+        bson: status
+        json: status
+        required: true
+        default: active
+        enum: [active, blocked, disabled]
+
+      - name: profile
+        type: Profile
+        bson: profile
+        json: profile
+        required: true
+
+      - name: tags
+        type: "[]string"
+        bson: tags
+        json: tags
+        required: false
+        default: []
+
+      - name: created_at
+        type: time
+        bson: created_at
+        json: created_at
+        generated: true
+        read_only: true
+
+      - name: updated_at
+        type: time
+        bson: updated_at
+        json: updated_at
+        generated: true
+        read_only: true
+
+  - name: Profile
+    embedded: true
+    generation:
+      model: true
+      repository: false
+      service: false
+      http: false
+      operations: []
+    fields:
+      - name: first_name
+        type: string
+        bson: first_name
+        json: first_name
+        required: true
+
+      - name: last_name
+        type: string
+        bson: last_name
+        json: last_name
+        required: true
+
+      - name: avatar_url
+        type: string
+        bson: avatar_url
+        json: avatar_url
+        required: false
+        omit_empty: true
+        validation:
+          format: uri
+
+  - name: Order
+    collection: orders
+    embedded: false
+    timestamps: true
+    soft_delete: false
+    generation:
+      model: true
+      repository: true
+      service: true
+      http: true
+      operations: [create, get_by_id, list, update, delete]
+    fields:
+      - name: id
+        type: object_id
+        bson: _id
+        json: id
+        primary: true
+        generated: true
+        required: true
+
+      - name: user_id
+        type: object_id
+        bson: user_id
+        json: user_id
+        required: true
+        reference:
+          model: User
+          local_field: user_id
+          foreign_field: _id
+          on_delete: restrict
+
+      - name: items
+        type: "[]OrderItem"
+        bson: items
+        json: items
+        required: true
+        validation:
+          min_items: 1
+
+      - name: total_amount
+        type: decimal128
+        bson: total_amount
+        json: total_amount
+        required: true
+        validation:
+          minimum: "0"
+
+      - name: status
+        type: string
+        bson: status
+        json: status
+        required: true
+        default: pending
+        enum: [pending, paid, shipped, delivered, cancelled]
+
+      - name: created_at
+        type: time
+        bson: created_at
+        json: created_at
+        generated: true
+        read_only: true
+
+      - name: updated_at
+        type: time
+        bson: updated_at
+        json: updated_at
+        generated: true
+        read_only: true
+
+  - name: OrderItem
+    embedded: true
+    generation:
+      model: true
+      repository: false
+      service: false
+      http: false
+      operations: []
+    fields:
+      - name: product_id
+        type: object_id
+        bson: product_id
+        json: product_id
+        required: true
+
+      - name: quantity
+        type: int32
+        bson: quantity
+        json: quantity
+        required: true
+        validation:
+          minimum: 1
+
+      - name: price
+        type: decimal128
+        bson: price
+        json: price
+        required: true
+        validation:
+          minimum: "0"
+
+# ------------------------------------------------------------------------------
+# INDEXES
+# ------------------------------------------------------------------------------
+# order: asc или desc. Индексы ссылаются только на существующие поля моделей.
+indexes:
+  - model: User
+    name: idx_users_email_unique
+    keys:
+      - field: email
+        order: asc
+    unique: true
+    sparse: false
+
+  - model: User
+    name: idx_users_status
+    keys:
+      - field: status
+        order: asc
+    unique: false
+
+  - model: Order
+    name: idx_orders_user_created
+    keys:
+      - field: user_id
+        order: asc
+      - field: created_at
+        order: desc
+    unique: false
+
+# ------------------------------------------------------------------------------
+# CUSTOM METHODS
+# ------------------------------------------------------------------------------
+# operation: find_one, find_many, update_one, delete_one, aggregate.
+# operator: eq, ne, gt, gte, lt, lte, in, nin, regex, exists.
+# Источники HTTP-параметров: path, query, header, body.
+# Методы описываются декларативно, без исполняемого Go-кода в YAML.
+methods:
+  - model: User
+    name: FindByEmail
+    operation: find_one
+    parameters:
+      - name: email
+        type: string
+        required: true
+    filter:
+      all:
+        - field: email
+          operator: eq
+          parameter: email
+    result:
+      type: User
+      many: false
+    http:
+      enabled: true
+      method: GET
+      path: /users/by-email
+      parameter_sources:
+        email: query
+
+  - model: User
+    name: FindActiveUsers
+    operation: find_many
+    parameters: []
+    filter:
+      all:
+        - field: status
+          operator: eq
+          value: active
+    sort:
+      - field: created_at
+        order: desc
+    pagination:
+      enabled: true
+      default_limit: 20
+      max_limit: 100
+    result:
+      type: User
+      many: true
+    http:
+      enabled: true
+      method: GET
+      path: /users/active
+
+  - model: User
+    name: UpdateProfile
+    operation: update_one
+    parameters:
+      - name: user_id
+        type: object_id
+        required: true
+      - name: profile
+        type: Profile
+        required: true
+    filter:
+      all:
+        - field: id
+          operator: eq
+          parameter: user_id
+    update:
+      set:
+        - field: profile
+          parameter: profile
+    result:
+      type: User
+      many: false
+    http:
+      enabled: true
+      method: PATCH
+      path: /users/{user_id}/profile
+      parameter_sources:
+        user_id: path
+        profile: body
+
+# ------------------------------------------------------------------------------
+# HOOKS
+# ------------------------------------------------------------------------------
+# События: before_create, after_create, before_update, after_update,
+# before_delete, after_delete. Разрешены только известные декларативные действия.
+hooks:
+  - model: User
+    event: before_create
+    actions:
+      - type: set_current_time
+        field: created_at
+      - type: set_current_time
+        field: updated_at
+
+  - model: User
+    event: before_update
+    actions:
+      - type: set_current_time
+        field: updated_at

@@ -1,33 +1,75 @@
 # REST Generator
 
-`rest_generator` создает готовое REST-приложение на Go поверх кода, предварительно сгенерированного `sqlc`.
+`rest_generator` сначала создает конфигурацию проекта, а затем генерирует REST-приложение на Go из выбранного стека и первичных файлов источников.
 
-Генератор использует только:
+Основной файл `rest_config/rest.yaml` включает или отключает подсистемы. Настройки конкретных источников вынесены в `sqlc_rest.yaml`, `mongo_rest.yaml` и `auth_rest.yaml`. Команда `rest config generate` копирует канонические YAML целиком, включая разделители, пояснения и комментарии с допустимыми значениями.
 
-- `sqlc.yaml`;
-- SQL-схемы и SQL-запросы, указанные в `sqlc.yaml`;
-- Go-файлы, созданные `sqlc`;
-- имя Go-модуля из `go.mod`.
+В исходниках генератора файл `rest_config/templates.go` через `go:embed` упаковывает эти YAML внутрь устанавливаемого бинарника `rest`. Поэтому после `go install` или сборки бинарник самодостаточен: пользователю не нужны исходники генератора, а команда создаёт только редактируемые YAML-файлы.
 
-Дополнительные YAML-файлы для описания HTTP endpoint-ов не требуются.
+Переключатели `sql`, `mongo` и `auth` задаются только в `rest.yaml`. Feature-файлы не дублируют состояние включения и содержат настройки, необходимые соответствующему генератору. Пока генерация MongoDB и auth не реализована, эти файлы являются проверяемыми контрактами будущих генераторов.
 
-## Общая схема
+На текущем этапе полностью реализована SQL/HTTP-ветка на основе `sqlc`, включая настраиваемые HTTP middleware, logging на `zap`, OpenAPI, Docker, Prometheus-compatible metrics, тестовые артефакты и проектные файлы.
+
+Отдельные YAML-файлы для ручного описания HTTP endpoint-ов не используются. Маршруты, параметры и результаты по-прежнему выводятся из SQL-схем, SQL-запросов и Go-файлов, созданных `sqlc`.
+
+## Рабочие сценарии
 
 ```text
-SQL schema + SQL queries
-          |
-          v
-     sqlc generate
-          |
-          v
-DB-модели, параметры и методы sqlc
-          |
-          v
-     rest generate
-          |
-          v
-domain -> repository -> service -> HTTP -> main -> tests
+SQLC уже подготовлен:
+rest config generate -> настройка rest_config -> rest app generate
+
+Пустой проект:
+rest config sqlc generate -> настройка файлов -> sqlc generate -f sqlc/sqlc.yaml -> rest app generate
+
+Готовый пример без настроек:
+rest config sqlc generate -> rest sqlc example generate -> sqlc generate -f sqlc/sqlc.yaml -> rest app generate
 ```
+
+## Архитектура генератора
+
+```text
+cmd/rest                 разбор CLI-команд
+internal/config          создание и чтение конфигурации
+internal/appgen          оркестрация и реестр feature-генераторов
+internal/generator       реализованный SQLC/HTTP-генератор
+rest_config              YAML-шаблоны и templates.go для встраивания их в бинарник
+```
+
+Реестр использует общий интерфейс `Feature` с методами `Name`, `Enabled` и `Generate`. Текущая SQL/HTTP-ветка интегрирует logging, OpenAPI, Docker, curl, metrics и управляемые проектные файлы. Для MongoDB и auth подготовлены отдельные проверяемые конфигурационные контракты, но их генераторы пока не реализованы.
+
+Каждая опциональная секция подчиняется одному правилу: `enabled: true` создаёт и интегрирует соответствующий код или файл, `enabled: false` не добавляет интеграцию и удаляет ранее созданный генератором артефакт. Исключение составляет пользовательское содержимое `.gitignore`: генератор управляет только блоком между собственными маркерами. Неизвестные поля YAML считаются ошибкой, поэтому опечатки в настройках не игнорируются.
+
+При `sqlc_rest.yaml:init_migration: enable` из SQLC schema создаётся управляемая Goose-миграция `00001_rest_generator_init.sql`. При отключении удаляется только файл с маркером генератора; пользовательская миграция с таким именем не перезаписывается.
+
+## Тестовые артефакты
+
+Раздел `testing` в `rest.yaml` независимо управляет двумя видами файлов:
+
+```yaml
+testing:
+  handler_tests: enabled
+  curl: enabled
+```
+
+- `handler_tests` создает `*_handlers_test.go` для каждого инстанса;
+- `curl` создает каталог `curl` и отдельный Markdown-файл для каждого инстанса, например `curl/study.md` и `curl/agent_record.md`;
+- каждый curl-файл содержит команды для всех endpoint-ов своего инстанса;
+- при отключении опции ранее сгенерированные файлы соответствующего типа удаляются при следующей генерации.
+
+## OpenAPI
+
+При `openapi.enabled: true` спецификация строится из той же внутренней модели, что handlers, HTTP DTO и маршруты приложения. Она включает:
+
+- системный route `/`, все маршруты всех инстансов и Swagger routes при включенном UI;
+- path/query-параметры с обязательностью и форматами `uuid`, `date`, `date-time`, integer и boolean;
+- JSON request body для создания и дополнительных endpoint-ов;
+- response schemas для объектов, массивов и scalar-результатов SQL-запросов;
+- реальные служебные ответы `{ok: true}` и `{deleted: true}`;
+- `400`, `404` и `500` только для тех обработчиков, которые могут вернуть соответствующий ответ;
+- общую фактическую модель ошибки с полями `slug` и опциональным `error`;
+- компоненты request/response для всех генерируемых HTTP-моделей.
+
+Спецификация и встроенный Swagger endpoint используют один и тот же сгенерированный документ. При отключении OpenAPI ранее созданный файл спецификации удаляется.
 
 ## Требования
 
@@ -35,21 +77,21 @@ domain -> repository -> service -> HTTP -> main -> tests
 - PostgreSQL;
 - `sqlc`;
 - корректный `go.mod`;
-- `sqlc.yaml` с настроенной Go-генерацией;
+- `sqlc/sqlc.yaml` с настроенной Go-генерацией;
 - SQL-файлы схемы и запросов.
 
-Пример минимальной конфигурации `sqlc.yaml`:
+Пример минимальной конфигурации `sqlc/sqlc.yaml`:
 
 ```yaml
 version: "2"
 sql:
   - engine: "postgresql"
-    queries: "internal/sql/queries"
-    schema: "internal/sql/schema"
+    queries: "queries"
+    schema: "schema"
     gen:
       go:
         package: "db"
-        out: "internal/app/db"
+        out: "../internal/app/db"
         emit_json_tags: true
         emit_prepared_queries: true
         emit_interface: true
@@ -63,31 +105,55 @@ sql:
 make build-rest
 ```
 
-Сначала запустите `sqlc`, затем REST generator:
+Если SQLC уже настроен и DB-код сгенерирован, создайте только конфиги REST Generator:
 
 ```bash
-sqlc generate
-./bin/rest generate
+./bin/rest config generate
 ```
 
-Проверьте результат:
+При необходимости настройте `rest_config/*.yaml`, включите `sqlc.enable` и выполните:
 
 ```bash
-go test ./...
-go build ./...
+./bin/rest app generate
 ```
 
-CLI поддерживает альтернативные пути:
+Для пустого проекта одной командой создайте конфиги REST Generator и SQLC-каркас:
 
 ```bash
-rest generate -sqlc path/to/sqlc.yaml -out path/to/project
+./bin/rest config sqlc generate
+```
+
+Команда создаёт `rest_config/*.yaml`, единственный `sqlc/sqlc.yaml`, `sqlc/schema/item.sql` и `sqlc/queries/item.sql`. В bootstrap-конфиге `sqlc.enable` сразу включён.
+
+Чтобы получить полностью рабочее приложение без ручной настройки, добавьте пример `study`:
+
+```bash
+./bin/rest sqlc example generate
+```
+
+Команда создаёт `sqlc_example/schema/studies.sql` и `sqlc_example/queries/studies.sql`, если в `sqlc_rest.yaml` установлено `sqlc.sqlc_example: enable`.
+
+После этого выполните:
+
+```bash
+sqlc generate -f sqlc/sqlc.yaml
+./bin/rest app generate
+```
+
+CLI поддерживает альтернативные каталоги:
+
+```bash
+rest config generate -out path/to/rest_config
+rest config sqlc generate -out path/to/project
+rest sqlc example generate -config path/to/rest_config -out path/to/project
+rest app generate -config path/to/rest_config
 ```
 
 ## Алгоритм генерации
 
 ### 1. Чтение конфигурации
 
-Из `sqlc.yaml` извлекаются:
+Из `sqlc/sqlc.yaml` извлекаются:
 
 - каталог SQL-запросов;
 - каталог SQL-схем;
@@ -248,12 +314,22 @@ internal/app/transport/httpserver
 cmd/main.go
 ```
 
-Также создаются или обновляются:
+В зависимости от переключателей также создаются:
 
 ```text
 Makefile
 init_db.sh
+.gitignore
+.env.example
+.env                    только при generate_local_env: true, права 0600
+Dockerfile
+.dockerignore
+internal/sql/migrations/00001_rest_generator_init.sql
+internal/app/metrics
+curl/*.md
 ```
+
+`Makefile`, `.env.example`, `.env` и `init_db.sh` получают параметры БД из `sqlc_rest.yaml`. `init_db.sh` создаётся с правами `0755`; `.gitignore` сохраняет пользовательские строки вне блока `rest_generator`; цель `make rest-generate` использует путь к исходному каталогу конфигурации.
 
 ### Domain
 
@@ -357,26 +433,30 @@ internal/app/services
 internal/app/transport
 ```
 
-Не следует вручную изменять файлы в этих каталогах: изменения будут потеряны при следующем запуске `rest generate`.
+Не следует вручную изменять файлы в этих каталогах: изменения будут потеряны при следующем запуске `rest app generate`.
 
-DB-слой `internal/app/db` управляется командой `sqlc generate`.
+DB-слой `internal/app/db` управляется командой `sqlc generate -f sqlc/sqlc.yaml`.
 
 ## Полный рабочий цикл
 
 ```bash
-# 1. Изменить SQL-схему или запросы
+# 1. Создать конфиги генератора и SQLC-каркас
+rest config sqlc generate
 
-# 2. Обновить DB-код
-sqlc generate
+# 2. Создать готовый пример study
+rest sqlc example generate
 
-# 3. Обновить REST-приложение
-make rest-generate
+# 3. Сгенерировать DB-код
+sqlc generate -f sqlc/sqlc.yaml
 
-# 4. Проверить результат
+# 4. Сгенерировать REST-приложение
+rest app generate
+
+# 5. Проверить результат
 go test ./...
 go build ./...
 
-# 5. Запустить приложение
+# 6. Запустить приложение
 DB_DSN="postgres://user:password@localhost:5432/app_db?sslmode=disable" \
 HTTP_ADDR=:8080 \
 DEBUG_ERRORS=1 \

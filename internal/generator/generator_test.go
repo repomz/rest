@@ -151,7 +151,7 @@ WHERE (sqlc.narg('surgeon')::text IS NULL OR surgeon = sqlc.narg('surgeon'))
 		t.Fatal(err)
 	}
 
-	got, err := readSQLCOptionalQueryParams(dir)
+	got, err := readSQLCOptionalQueryParams([]string{dir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,5 +160,41 @@ WHERE (sqlc.narg('surgeon')::text IS NULL OR surgeon = sqlc.narg('surgeon'))
 	}
 	if !got["GetStudiesByFilter"]["surgeon"] || !got["GetStudiesByFilter"]["study_type"] {
 		t.Fatalf("sqlc.narg parameters were not detected: %+v", got)
+	}
+}
+
+func TestReadSQLCConfigResolvesPathsFromConfigDirectory(t *testing.T) {
+	projectDir := t.TempDir()
+	configDir := filepath.Join(projectDir, "sqlc")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `version: "2"
+sql:
+  - engine: postgresql
+    queries: queries
+    schema: schema
+    gen:
+      go:
+        package: db
+        out: ../internal/app/db
+`
+	configPath := filepath.Join(configDir, "sqlc.yaml")
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := readSQLCConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.QueriesDirs) != 1 || cfg.QueriesDirs[0] != filepath.Join(configDir, "queries") {
+		t.Fatalf("unexpected queries paths: %v", cfg.QueriesDirs)
+	}
+	if len(cfg.SchemaDirs) != 1 || cfg.SchemaDirs[0] != filepath.Join(configDir, "schema") {
+		t.Fatalf("unexpected schema paths: %v", cfg.SchemaDirs)
+	}
+	if cfg.DBOut != filepath.Join(projectDir, "internal", "app", "db") {
+		t.Fatalf("unexpected DB output path: %s", cfg.DBOut)
 	}
 }
