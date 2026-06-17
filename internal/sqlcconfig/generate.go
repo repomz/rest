@@ -30,6 +30,14 @@ func GenerateExample(root string) error {
 	return generate(root, "example")
 }
 
+func ValidateExample(root string) error {
+	files, err := plannedFiles(root, "example")
+	if err != nil {
+		return err
+	}
+	return validateTargets(files)
+}
+
 func generate(root, templateRoot string) error {
 	files, err := plannedFiles(root, templateRoot)
 	if err != nil {

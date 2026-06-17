@@ -112,8 +112,11 @@ func TestRestConfigUsesOnlySupportedOptionalFeatures(t *testing.T) {
 	if _, exists := observability["tracing"]; exists {
 		t.Fatal("removed tracing feature must not remain in rest.yaml")
 	}
+	if _, exists := rest["safe_reload"]; !exists {
+		t.Fatal("rest.yaml must define the safe_reload switch")
+	}
 	features := requireMapValue(t, rest, "features")
-	for _, removed := range []string{"safe_app_reload", "safe_config_reload", "safe_reload"} {
+	for _, removed := range []string{"safe_app_reload", "safe_config_reload"} {
 		if _, exists := features[removed]; exists {
 			t.Fatalf("removed feature %q must not remain in rest.yaml", removed)
 		}

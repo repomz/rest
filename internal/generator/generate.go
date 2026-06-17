@@ -35,24 +35,6 @@ func Generate(opts Options) error {
 	if len(tables) == 0 {
 		return fmt.Errorf("no CREATE TABLE statements found in %s", strings.Join(cfg.SchemaDirs, ", "))
 	}
-	if opts.Features.Build.Configured {
-		migrationPath := filepath.Join(outDir, defaultPath(opts.Features.Build.MigrationsPath, "internal/sql/migrations"), "00001_rest_generator_init.sql")
-		if err := removeGeneratedMigration(migrationPath); err != nil {
-			return err
-		}
-		if opts.Features.Build.InitMigration {
-			migration, err := buildInitialMigration(cfg.SchemaDirs, tables)
-			if err != nil {
-				return err
-			}
-			if err := os.MkdirAll(filepath.Dir(migrationPath), 0o755); err != nil {
-				return err
-			}
-			if err := os.WriteFile(migrationPath, []byte(migration), 0o644); err != nil {
-				return err
-			}
-		}
-	}
 
 	queryMeta, err := readQuerierMeta(filepath.Join(cfg.DBOut, "querier.go"))
 	if err != nil {
@@ -70,45 +52,6 @@ func Generate(opts Options) error {
 	attachEndpoints(tables, endpoints)
 	for i := range tables {
 		tables[i].Queries = detectQueries(queryMeta, tables[i])
-	}
-	if err := cleanGeneratedAppLayers(outDir); err != nil {
-		return err
-	}
-	if opts.Features.Build.Configured {
-		if err := os.RemoveAll(filepath.Join(outDir, "curl")); err != nil {
-			return err
-		}
-		for _, path := range generatedOptionalPaths(opts.Features) {
-			if path == "" {
-				continue
-			}
-			target := path
-			if !filepath.IsAbs(target) {
-				target = filepath.Join(outDir, target)
-			}
-			if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
-				return err
-			}
-		}
-		if err := removeGeneratedEnv(filepath.Join(outDir, ".env")); err != nil {
-			return err
-		}
-		gitignorePath := filepath.Join(outDir, defaultPath(opts.Features.Build.GitignorePath, ".gitignore"))
-		if err := removeGeneratedSection(gitignorePath, "# rest_generator:begin", "# rest_generator:end"); err != nil {
-			return err
-		}
-	}
-	if opts.Features.Build.Configured && !opts.Features.OpenAPI.Enabled {
-		output := opts.Features.OpenAPI.Output
-		if output == "" {
-			output = "docs/swagger.yaml"
-		}
-		if !filepath.IsAbs(output) {
-			output = filepath.Join(outDir, output)
-		}
-		if err := os.Remove(output); err != nil && !os.IsNotExist(err) {
-			return err
-		}
 	}
 	dbOut, err := filepath.Rel(outDir, cfg.DBOut)
 	if err != nil || dbOut == ".." || filepath.IsAbs(dbOut) || len(dbOut) >= 3 && dbOut[:3] == ".."+string(filepath.Separator) {
@@ -165,6 +108,125 @@ func Generate(opts Options) error {
 		files["internal/app/metrics/metrics.go"] = metricsTemplate
 	}
 
+	var generatedFiles []string
+	for path := range files {
+		generatedFiles = append(generatedFiles, path)
+	}
+	if opts.Features.Build.Gitignore {
+		generatedFiles = append(generatedFiles, defaultPath(opts.Features.Build.GitignorePath, ".gitignore"))
+	}
+	migrationPath := ""
+	if opts.Features.Build.Configured {
+		migrationPath = filepath.Join(outDir, defaultPath(opts.Features.Build.MigrationsPath, "internal/sql/migrations"), "00001_rest_generator_init.sql")
+		if opts.Features.Build.InitMigration {
+			if rel, ok, err := generatedRelPath(outDir, migrationPath); err != nil {
+				return err
+			} else if ok {
+				generatedFiles = append(generatedFiles, rel)
+			}
+		}
+	}
+	openAPIOutput := ""
+	if opts.Features.OpenAPI.Enabled {
+		openAPIOutput = opts.Features.OpenAPI.Output
+		if openAPIOutput == "" {
+			openAPIOutput = "docs/swagger.yaml"
+		}
+		if !filepath.IsAbs(openAPIOutput) {
+			openAPIOutput = filepath.Join(outDir, openAPIOutput)
+		}
+		if rel, ok, err := generatedRelPath(outDir, openAPIOutput); err != nil {
+			return err
+		} else if ok {
+			generatedFiles = append(generatedFiles, rel)
+		}
+	}
+	tableFilesByName := map[string]map[string]string{}
+	for _, tbl := range tables {
+		tableFiles := map[string]string{
+			fmt.Sprintf("internal/app/domain/%s.go", tbl.Singular):                        domainModelTemplate,
+			fmt.Sprintf("internal/app/services/%s.go", tbl.Singular):                      serviceTemplate,
+			fmt.Sprintf("internal/app/repository/pgrepo/%s_repo.go", tbl.Singular):        repoTemplate,
+			fmt.Sprintf("internal/app/transport/httpmodels/%s.go", tbl.Singular):          httpModelsTemplate,
+			fmt.Sprintf("internal/app/transport/httpserver/%s_handlers.go", tbl.Singular): httpHandlersTemplate,
+		}
+		if !opts.Features.Build.Configured || opts.Features.Build.HandlerTests {
+			tableFiles[fmt.Sprintf("internal/app/transport/httpserver/%s_handlers_test.go", tbl.Singular)] = httpHandlersTestTemplate
+		}
+		if opts.Features.Build.Curl {
+			tableFiles[fmt.Sprintf("curl/%s.md", tbl.Singular)] = curlTemplate
+		}
+		tableFilesByName[tbl.Name] = tableFiles
+		for path := range tableFiles {
+			generatedFiles = append(generatedFiles, path)
+		}
+	}
+
+	var preserved map[string][]byte
+	reload := newSafeReload(outDir, opts.Stdin, opts.Stdout)
+	if opts.Features.Build.SafeReload {
+		preserved, err = reload.resolve(generatedFiles)
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := cleanGeneratedAppLayers(outDir); err != nil {
+		return err
+	}
+	if opts.Features.Build.Configured {
+		if err := os.RemoveAll(filepath.Join(outDir, "curl")); err != nil {
+			return err
+		}
+		for _, path := range generatedOptionalPaths(opts.Features) {
+			if path == "" {
+				continue
+			}
+			target := path
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(outDir, target)
+			}
+			if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+		if err := removeGeneratedEnv(filepath.Join(outDir, ".env")); err != nil {
+			return err
+		}
+		gitignorePath := filepath.Join(outDir, defaultPath(opts.Features.Build.GitignorePath, ".gitignore"))
+		if err := removeGeneratedSection(gitignorePath, "# rest_generator:begin", "# rest_generator:end"); err != nil {
+			return err
+		}
+		if err := removeGeneratedMigration(migrationPath); err != nil {
+			return err
+		}
+	}
+	if opts.Features.Build.Configured && !opts.Features.OpenAPI.Enabled {
+		output := opts.Features.OpenAPI.Output
+		if output == "" {
+			output = "docs/swagger.yaml"
+		}
+		if !filepath.IsAbs(output) {
+			output = filepath.Join(outDir, output)
+		}
+		if err := os.Remove(output); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+
+	if opts.Features.Build.Configured && opts.Features.Build.InitMigration {
+		migration, err := buildInitialMigration(cfg.SchemaDirs, tables)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(migrationPath), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(migrationPath, []byte(migration), 0o644); err != nil {
+			return err
+		}
+	}
+
 	for path, tmpl := range files {
 		if err := renderFile(filepath.Join(outDir, path), tmpl, data); err != nil {
 			return err
@@ -181,19 +243,7 @@ func Generate(opts Options) error {
 		tableData := data
 		tableData.Table = tbl
 		tableData.Queries = tbl.Queries
-		tableFiles := map[string]string{
-			fmt.Sprintf("internal/app/domain/%s.go", tbl.Singular):                        domainModelTemplate,
-			fmt.Sprintf("internal/app/services/%s.go", tbl.Singular):                      serviceTemplate,
-			fmt.Sprintf("internal/app/repository/pgrepo/%s_repo.go", tbl.Singular):        repoTemplate,
-			fmt.Sprintf("internal/app/transport/httpmodels/%s.go", tbl.Singular):          httpModelsTemplate,
-			fmt.Sprintf("internal/app/transport/httpserver/%s_handlers.go", tbl.Singular): httpHandlersTemplate,
-		}
-		if !opts.Features.Build.Configured || opts.Features.Build.HandlerTests {
-			tableFiles[fmt.Sprintf("internal/app/transport/httpserver/%s_handlers_test.go", tbl.Singular)] = httpHandlersTestTemplate
-		}
-		if opts.Features.Build.Curl {
-			tableFiles[fmt.Sprintf("curl/%s.md", tbl.Singular)] = curlTemplate
-		}
+		tableFiles := tableFilesByName[tbl.Name]
 		for path, tmpl := range tableFiles {
 			if err := renderFile(filepath.Join(outDir, path), tmpl, tableData); err != nil {
 				return err
@@ -201,22 +251,35 @@ func Generate(opts Options) error {
 		}
 	}
 	if opts.Features.OpenAPI.Enabled {
-		output := opts.Features.OpenAPI.Output
-		if output == "" {
-			output = "docs/swagger.yaml"
-		}
-		if !filepath.IsAbs(output) {
-			output = filepath.Join(outDir, output)
-		}
-		if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(openAPIOutput), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(output, []byte(data.OpenAPI), 0o644); err != nil {
+		if err := os.WriteFile(openAPIOutput, []byte(data.OpenAPI), 0o644); err != nil {
+			return err
+		}
+	}
+
+	if opts.Features.Build.SafeReload {
+		if err := reload.save(generatedFiles); err != nil {
+			return err
+		}
+		if err := reload.restore(preserved); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func generatedRelPath(root, path string) (string, bool, error) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", false, err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", false, nil
+	}
+	return filepath.ToSlash(rel), true, nil
 }
 
 func defaultPath(path, fallback string) string {

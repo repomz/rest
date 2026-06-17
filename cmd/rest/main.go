@@ -1,14 +1,19 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/repomz/rest_generator/internal/appgen"
 	"github.com/repomz/rest_generator/internal/config"
+	"github.com/repomz/rest_generator/internal/selfupdate"
 	"github.com/repomz/rest_generator/internal/sqlcconfig"
 )
+
+var version = "dev"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -22,110 +27,83 @@ func run(args []string) error {
 		return usageError()
 	}
 	switch args[0] {
-	case "config":
-		return runConfig(args[1:])
-	case "app":
-		return runApp(args[1:])
-	case "sqlc":
-		return runSQLC(args[1:])
+	case "init":
+		return runInit(args[1:])
+	case "generate":
+		return runGenerate(args[1:])
+	case "update":
+		return runUpdate(args[1:])
+	case "version":
+		fmt.Println(version)
+		return nil
 	default:
 		return usageError()
 	}
 }
 
-func runConfig(args []string) error {
-	if len(args) == 0 {
-		return usageError()
-	}
-	if args[0] == "sqlc" {
-		if len(args) < 2 || args[1] != "generate" {
-			return usageError()
-		}
-		out, err := parseOutputDir(args[2:])
-		if err != nil {
-			return err
-		}
-		if err := sqlcconfig.ValidateProject(out); err != nil {
-			return err
-		}
-		if err := config.GenerateForSQLC(filepath.Join(out, "rest_config")); err != nil {
-			return err
-		}
-		return sqlcconfig.GenerateProject(out)
-	}
-	if args[0] != "generate" {
-		return usageError()
-	}
-	out := "rest_config"
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "-out":
-			i++
-			if i >= len(args) {
-				return fmt.Errorf("-out requires a path")
-			}
-			out = args[i]
-		default:
-			return fmt.Errorf("unknown argument %q", args[i])
-		}
-	}
-	return config.Generate(out)
-}
-
-func runSQLC(args []string) error {
-	if len(args) < 2 || args[0] != "example" || args[1] != "generate" {
-		return usageError()
-	}
-	configDir := "rest_config"
-	out := "."
-	for i := 2; i < len(args); i++ {
-		switch args[i] {
-		case "-config":
-			i++
-			if i >= len(args) {
-				return fmt.Errorf("-config requires a path")
-			}
-			configDir = args[i]
-		case "-out":
-			i++
-			if i >= len(args) {
-				return fmt.Errorf("-out requires a path")
-			}
-			out = args[i]
-		default:
-			return fmt.Errorf("unknown argument %q", args[i])
-		}
-	}
-	bundle, err := config.Load(configDir)
+func runInit(args []string) error {
+	options, err := parseInitOptions(args)
 	if err != nil {
 		return err
 	}
-	if bundle.SQL == nil || !bundle.SQL.SQLC.Example.Bool() {
-		return fmt.Errorf("sqlc example generation is disabled in %s/sqlc_rest.yaml", configDir)
+	if options.withSQLC {
+		if err := sqlcconfig.ValidateProject(options.out); err != nil {
+			return err
+		}
 	}
-	return sqlcconfig.GenerateExample(out)
+	if options.withExample {
+		if err := sqlcconfig.ValidateExample(options.out); err != nil {
+			return err
+		}
+	}
+	configDir := filepath.Join(options.out, "rest_config")
+	if options.withSQLC {
+		if err := config.GenerateForSQLC(configDir); err != nil {
+			return err
+		}
+	} else {
+		if err := config.Generate(configDir); err != nil {
+			return err
+		}
+	}
+	if options.withSQLC {
+		if err := sqlcconfig.GenerateProject(options.out); err != nil {
+			return err
+		}
+	}
+	if options.withExample {
+		if err := sqlcconfig.GenerateExample(options.out); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func parseOutputDir(args []string) (string, error) {
-	out := "."
+type initOptions struct {
+	out         string
+	withSQLC    bool
+	withExample bool
+}
+
+func parseInitOptions(args []string) (initOptions, error) {
+	options := initOptions{out: "."}
 	for i := 0; i < len(args); i++ {
-		if args[i] != "-out" {
-			return "", fmt.Errorf("unknown argument %q", args[i])
+		switch args[i] {
+		case "--sqlc":
+			options.withSQLC = true
+		case "--example":
+			options.withExample = true
+		case "-out", "--out":
+			i++
+			if i >= len(args) {
+				return initOptions{}, fmt.Errorf("%s requires a path", args[i-1])
+			}
+			options.out = args[i]
+		default:
+			return initOptions{}, fmt.Errorf("unknown argument %q", args[i])
 		}
-		i++
-		if i >= len(args) {
-			return "", fmt.Errorf("-out requires a path")
-		}
-		out = args[i]
 	}
-	return out, nil
-}
-
-func runApp(args []string) error {
-	if len(args) == 0 || args[0] != "generate" {
-		return usageError()
-	}
-	return runGenerate(args[1:])
+	return options, nil
 }
 
 func runGenerate(args []string) error {
@@ -135,6 +113,30 @@ func runGenerate(args []string) error {
 	}
 	appGenerator := appgen.New(appgen.DefaultRegistry()...)
 	return appGenerator.Generate(configDir)
+}
+
+func runUpdate(args []string) error {
+	options, err := parseUpdateOptions(args)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	result, err := selfupdate.Update(ctx, selfupdate.Options{
+		CurrentVersion: version,
+		TargetVersion:  options.version,
+		Force:          options.force,
+		Stdout:         os.Stdout,
+	})
+	if err != nil {
+		return err
+	}
+	if !result.Updated {
+		fmt.Fprintf(os.Stdout, "rest is already up to date (%s)\n", result.Version)
+		return nil
+	}
+	fmt.Fprintf(os.Stdout, "updated rest from %s to %s\n", result.PreviousVersion, result.Version)
+	return nil
 }
 
 func parseConfigDir(args []string) (string, error) {
@@ -154,6 +156,30 @@ func parseConfigDir(args []string) (string, error) {
 	return configDir, nil
 }
 
+type updateOptions struct {
+	version string
+	force   bool
+}
+
+func parseUpdateOptions(args []string) (updateOptions, error) {
+	var options updateOptions
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--version":
+			i++
+			if i >= len(args) {
+				return updateOptions{}, fmt.Errorf("--version requires a release tag")
+			}
+			options.version = args[i]
+		case "--force":
+			options.force = true
+		default:
+			return updateOptions{}, fmt.Errorf("unknown argument %q", args[i])
+		}
+	}
+	return options, nil
+}
+
 func usageError() error {
-	return fmt.Errorf("usage: rest config generate [-out rest_config] | rest config sqlc generate [-out .] | rest sqlc example generate [-config rest_config] [-out .] | rest app generate [-config rest_config]")
+	return fmt.Errorf("usage: rest init [--sqlc] [--example] [--out .] | rest generate [-config rest_config] | rest update [--version vX.Y.Z] [--force] | rest version")
 }

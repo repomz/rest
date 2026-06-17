@@ -17,22 +17,39 @@ examples/
 
 # binary directory
 bin/
+/rest
+
+# release artifacts
+dist/
 
 # cache directory
 .cache/
 
 # Local environment and secrets
 .env
+*.env.local
 
 # Test binary, built with `go test -c`
 *.test
 
-# Output of the go coverage tool, specifically when used with LiteIDE
+# Test, coverage and profiling output
 *.out
+coverage.*
+*.coverprofile
+*.prof
+
+# Logs and temporary files
+*.log
+tmp/
+.tmp/
+
+# OS and editor metadata
+.DS_Store
+.idea/
+.vscode/
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
 # Go workspace file
 go.work
-

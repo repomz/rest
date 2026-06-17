@@ -22,28 +22,7 @@ func generate(dir string, enableSQLC bool) error {
 	if dir == "" {
 		dir = "rest_config"
 	}
-	type configFile struct {
-		name    string
-		content []byte
-	}
-	var files []configFile
-	err := fs.WalkDir(configtemplates.Files, ".", func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() || filepath.Ext(path) != ".yaml" {
-			return nil
-		}
-		content, err := configtemplates.Files.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if enableSQLC && filepath.Base(path) == "sqlc_rest.yaml" {
-			content = []byte(strings.Replace(string(content), "  enable: disable", "  enable: enable", 1))
-		}
-		files = append(files, configFile{name: filepath.Base(path), content: content})
-		return nil
-	})
+	files, err := configFiles(enableSQLC)
 	if err != nil {
 		return err
 	}
@@ -64,4 +43,34 @@ func generate(dir string, enableSQLC bool) error {
 		}
 	}
 	return nil
+}
+
+type configFile struct {
+	name    string
+	content []byte
+}
+
+func configFiles(enableSQLC bool) ([]configFile, error) {
+	var files []configFile
+	err := fs.WalkDir(configtemplates.Files, ".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".yaml" {
+			return nil
+		}
+		content, err := configtemplates.Files.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if enableSQLC && filepath.Base(path) == "sqlc_rest.yaml" {
+			content = []byte(strings.Replace(string(content), "  enable: disable", "  enable: enable", 1))
+		}
+		files = append(files, configFile{name: filepath.Base(path), content: content})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
 }

@@ -1,9 +1,13 @@
 package generator
 
+import "io"
+
 type Options struct {
 	SQLCPath string
 	OutDir   string
 	Features FeatureOptions
+	Stdin    io.Reader
+	Stdout   io.Writer
 }
 
 type FeatureOptions struct {
@@ -31,6 +35,7 @@ type BuildFeatures struct {
 	ConfigPath       string
 	InitDB           bool
 	InitDBPath       string
+	SafeReload       bool
 	InitMigration    bool
 	MigrationEngine  string
 	MigrationsPath   string

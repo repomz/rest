@@ -309,6 +309,7 @@ func (SQLFeature) Generate(ctx Context) error {
 				ConfigPath:       configPath,
 				InitDB:           ctx.Config.Rest.Features.InitDB.Enabled.Bool(),
 				InitDBPath:       ctx.Config.Rest.Features.InitDB.Output,
+				SafeReload:       ctx.Config.Rest.SafeReload.Bool(),
 				InitMigration:    ctx.Config.SQL.InitMigration.Bool(),
 				MigrationEngine:  ctx.Config.SQL.MigrationEngine,
 				MigrationsPath:   ctx.Config.SQL.MigrationOutput,

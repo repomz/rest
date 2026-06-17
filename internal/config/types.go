@@ -11,6 +11,7 @@ type Rest struct {
 	SQL           Enabled             `yaml:"sql"`
 	Mongo         Enabled             `yaml:"mongo"`
 	Auth          Enabled             `yaml:"auth"`
+	SafeReload    Enabled             `yaml:"safe_reload"`
 	Logging       Logging             `yaml:"logging"`
 	OpenAPI       OpenAPI             `yaml:"openapi"`
 	Docker        Docker              `yaml:"docker"`

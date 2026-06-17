@@ -215,7 +215,7 @@ build:
 	go build -o $(BUILD_DIR)/$(APP_NAME) ./cmd
 
 rest-generate:
-	$(REST) app generate -config $(REST_CONFIG)
+	$(REST) generate -config $(REST_CONFIG)
 
 run:
 	@mkdir -p $(BUILD_DIR) && \
