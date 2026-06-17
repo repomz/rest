@@ -117,9 +117,8 @@ const configTemplate = `package config
 
 import (
 	"os"
-{{- if .Features.Build.Env }}
+
 	"github.com/joho/godotenv"
-{{- end }}
 )
 
 type Config struct {
@@ -128,9 +127,7 @@ type Config struct {
 }
 
 func Read() Config {
-	{{- if .Features.Build.Env }}
 	_ = godotenv.Load()
-	{{- end }}
 
 	cfg := Config{
 		HTTPAddr: {{ printf "%q" (httpAddr .Features.HTTP.Host .Features.HTTP.Port) }},

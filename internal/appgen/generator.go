@@ -241,9 +241,7 @@ func ensureModuleRequirements(goMod string, rest config.Rest) error {
 	}
 	text := string(content)
 	requirements := map[string]string{}
-	if rest.Features.Env.Enabled.Bool() {
-		requirements["github.com/joho/godotenv"] = "v1.5.1"
-	}
+	requirements["github.com/joho/godotenv"] = "v1.5.1"
 	if rest.Logging.Enabled.Bool() {
 		requirements["go.uber.org/zap"] = "v1.27.0"
 	}

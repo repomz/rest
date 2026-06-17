@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	configtemplates "github.com/repomz/rest_generator/rest_config"
+	configtemplates "github.com/repomz/rest_generator/internal/config/templates"
 	"gopkg.in/yaml.v3"
 )
 
@@ -288,7 +288,11 @@ func TestSQLConfigSupportsLegacyPasswordKey(t *testing.T) {
 }
 
 func TestLoadFeatureSwitches(t *testing.T) {
-	bundle, err := Load(filepath.Join("..", "..", "rest_config"))
+	dir := filepath.Join(t.TempDir(), "rest_config")
+	if err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

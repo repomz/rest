@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -103,6 +105,43 @@ func TestBuildOpenAPISpecDescribesGeneratedApplication(t *testing.T) {
 		t.Fatal("HTTP date query parameter must use date format")
 	}
 	assertOpenAPIRefsResolve(t, document, schemas)
+}
+
+func TestSwaggerRoutesAreServedByGeneratedHandlers(t *testing.T) {
+	data := renderData{
+		Features: FeatureOptions{
+			HTTP:    HTTPFeatures{BasePath: "/"},
+			OpenAPI: OpenAPIFeatures{Enabled: true, WithUI: true, SpecPath: "/swagger/openapi.yaml", UIPath: "/swagger/index.html"},
+		},
+		OpenAPI: "openapi: 3.0.3\n",
+	}
+	appMain, err := renderTemplateForTest(t, "main.go", appMainTemplate, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	swagger, err := renderTemplateForTest(t, "swagger.go", swaggerTemplate, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`HandleFunc("/swagger/openapi.yaml", httpserver.SwaggerSpec)`, `HandleFunc("/swagger/index.html", httpserver.SwaggerUI)`} {
+		if !strings.Contains(string(appMain), expected) {
+			t.Fatalf("main route %q not generated:\n%s", expected, appMain)
+		}
+	}
+	for _, expected := range []string{"func SwaggerSpec", "func SwaggerUI", "SwaggerUIBundle"} {
+		if !strings.Contains(string(swagger), expected) {
+			t.Fatalf("swagger handler %q not generated:\n%s", expected, swagger)
+		}
+	}
+}
+
+func renderTemplateForTest(t *testing.T, name, tmpl string, data renderData) ([]byte, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := renderFile(path, tmpl, data); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
 }
 
 func assertOpenAPIRefsResolve(t *testing.T, value interface{}, schemas map[string]interface{}) {

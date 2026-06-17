@@ -11,6 +11,10 @@
 # internal/sql directory
 internal/sql
 
+internal/app
+rest_config/
+examples/
+
 # binary directory
 bin/
 

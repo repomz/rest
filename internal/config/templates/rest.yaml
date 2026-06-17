@@ -85,14 +85,14 @@ logging:
 # ------------------------------------------------------------------------------
 openapi:
   enabled: true
-  output: docs/swagger.yaml
+  output: docs/swagger.yaml           # Физический файл спецификации на диске.
   title: My App API
   version: "0.1.0"
   description: Generated application API
   server_url: http://localhost:8080
   with_ui: true
-  ui_path: /swagger/index.html
-  spec_path: /swagger/openapi.yaml
+  ui_path: /swagger/index.html        # HTTP route, не файл на диске.
+  spec_path: /swagger/openapi.yaml    # HTTP route, не файл на диске.
 
 # ------------------------------------------------------------------------------
 # DOCKER (без docker-compose)
