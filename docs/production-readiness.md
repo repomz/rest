@@ -13,7 +13,7 @@
 | OpenAPI | Генерируется из той же endpoint-модели, что и handlers |
 | Docker | Генерируется multi-stage Dockerfile |
 | Observability | zap logging и optional Prometheus-compatible metrics |
-| Runtime | Настраиваемый `database/sql` pool и graceful shutdown |
+| Runtime | Переиспользование соединений через `database/sql` и graceful shutdown |
 | Orchestration | Optional auto SQLC перед генерацией и обязательный `go mod tidy` после нее |
 | Safety | `rest init` не перезаписывает config-файлы, `safe_reload` защищает ручные изменения generated files |
 | CI/CD | GitHub Actions для test/build и release artifacts |

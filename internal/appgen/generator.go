@@ -90,9 +90,6 @@ func validateConfig(bundle config.Bundle) error {
 	if !bundle.Rest.HTTP.GracefulShutdown.Enabled.Bool() {
 		return fmt.Errorf("http.graceful_shutdown.enabled supports only enable")
 	}
-	if bundle.Rest.HTTP.DatabasePool.MaxOpenConns < 0 || bundle.Rest.HTTP.DatabasePool.MaxIdleConns < 0 {
-		return fmt.Errorf("http.database_pool connection limits must be non-negative")
-	}
 	for name, path := range map[string]string{
 		"http.base_path":             bundle.Rest.HTTP.BasePath,
 		"http.health.path":           bundle.Rest.HTTP.Health.Path,
@@ -105,15 +102,12 @@ func validateConfig(bundle config.Bundle) error {
 		}
 	}
 	for name, value := range map[string]string{
-		"http.timeouts.read_header":             bundle.Rest.HTTP.Timeouts.ReadHeader,
-		"http.timeouts.read":                    bundle.Rest.HTTP.Timeouts.Read,
-		"http.timeouts.write":                   bundle.Rest.HTTP.Timeouts.Write,
-		"http.timeouts.idle":                    bundle.Rest.HTTP.Timeouts.Idle,
-		"http.timeouts.shutdown":                bundle.Rest.HTTP.Timeouts.Shutdown,
-		"http.database_pool.conn_max_idle_time": bundle.Rest.HTTP.DatabasePool.ConnMaxIdleTime,
-		"http.database_pool.conn_max_lifetime":  bundle.Rest.HTTP.DatabasePool.ConnMaxLifetime,
-		"http.database_pool.ping_timeout":       bundle.Rest.HTTP.DatabasePool.PingTimeout,
-		"http.middleware.cors.max_age":          bundle.Rest.HTTP.Middleware.CORS.MaxAge,
+		"http.timeouts.read_header":    bundle.Rest.HTTP.Timeouts.ReadHeader,
+		"http.timeouts.read":           bundle.Rest.HTTP.Timeouts.Read,
+		"http.timeouts.write":          bundle.Rest.HTTP.Timeouts.Write,
+		"http.timeouts.idle":           bundle.Rest.HTTP.Timeouts.Idle,
+		"http.timeouts.shutdown":       bundle.Rest.HTTP.Timeouts.Shutdown,
+		"http.middleware.cors.max_age": bundle.Rest.HTTP.Middleware.CORS.MaxAge,
 	} {
 		if value == "" {
 			continue
@@ -398,12 +392,6 @@ func (SQLFeature) Generate(ctx Context) error {
 				IdleTimeout:           ctx.Config.Rest.HTTP.Timeouts.Idle,
 				ShutdownTimeout:       ctx.Config.Rest.HTTP.Timeouts.Shutdown,
 				MaxBodyBytes:          ctx.Config.Rest.HTTP.Limits.MaxBodyBytes,
-				DatabasePool:          ctx.Config.Rest.HTTP.DatabasePool.Enabled.Bool(),
-				MaxOpenConns:          ctx.Config.Rest.HTTP.DatabasePool.MaxOpenConns,
-				MaxIdleConns:          ctx.Config.Rest.HTTP.DatabasePool.MaxIdleConns,
-				ConnMaxIdleTime:       ctx.Config.Rest.HTTP.DatabasePool.ConnMaxIdleTime,
-				ConnMaxLifetime:       ctx.Config.Rest.HTTP.DatabasePool.ConnMaxLifetime,
-				PingTimeout:           ctx.Config.Rest.HTTP.DatabasePool.PingTimeout,
 				GracefulShutdown:      ctx.Config.Rest.HTTP.GracefulShutdown.Enabled.Bool(),
 				Health:                ctx.Config.Rest.HTTP.Health.Enabled.Bool(),
 				HealthPath:            ctx.Config.Rest.HTTP.Health.Path,
@@ -444,7 +432,6 @@ func (SQLFeature) Generate(ctx Context) error {
 				RequestDuration:  ctx.Config.Rest.Observability.Metrics.Collect.RequestDuration,
 				ResponseSize:     ctx.Config.Rest.Observability.Metrics.Collect.ResponseSize,
 				InFlightRequests: ctx.Config.Rest.Observability.Metrics.Collect.InFlightRequests,
-				DatabasePool:     ctx.Config.Rest.Observability.Metrics.Collect.DatabasePool,
 				Labels:           ctx.Config.Rest.Observability.Metrics.Labels,
 			},
 			Docker: generator.DockerFeatures{

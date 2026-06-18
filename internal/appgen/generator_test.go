@@ -17,16 +17,6 @@ func TestValidateConfigRequiresGracefulShutdown(t *testing.T) {
 	}
 }
 
-func TestValidateConfigChecksDatabasePoolDuration(t *testing.T) {
-	bundle := minimalBundle()
-	bundle.Rest.HTTP.DatabasePool.ConnMaxLifetime = "soon"
-
-	err := validateConfig(bundle)
-	if err == nil || !strings.Contains(err.Error(), "http.database_pool.conn_max_lifetime") {
-		t.Fatalf("expected database pool duration validation error, got %v", err)
-	}
-}
-
 func TestResolveSQLCPathUsesConfigDir(t *testing.T) {
 	got := resolveSQLCPath("/project/rest_config", "../sqlc/sqlc.yaml")
 	want := "/project/sqlc/sqlc.yaml"

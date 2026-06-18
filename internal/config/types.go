@@ -28,7 +28,6 @@ type HTTP struct {
 	BasePath         string          `yaml:"base_path"`
 	Timeouts         HTTPTimeouts    `yaml:"timeouts"`
 	Limits           HTTPLimits      `yaml:"limits"`
-	DatabasePool     DatabasePool    `yaml:"database_pool"`
 	GracefulShutdown GeneratedSwitch `yaml:"graceful_shutdown"`
 	Health           Health          `yaml:"health"`
 	Middleware       Middleware      `yaml:"middleware"`
@@ -44,14 +43,6 @@ type HTTPTimeouts struct {
 
 type HTTPLimits struct {
 	MaxBodyBytes int64 `yaml:"max_body_bytes"`
-}
-type DatabasePool struct {
-	Enabled         Enabled `yaml:"enabled"`
-	MaxOpenConns    int     `yaml:"max_open_conns"`
-	MaxIdleConns    int     `yaml:"max_idle_conns"`
-	ConnMaxIdleTime string  `yaml:"conn_max_idle_time"`
-	ConnMaxLifetime string  `yaml:"conn_max_lifetime"`
-	PingTimeout     string  `yaml:"ping_timeout"`
 }
 type GeneratedSwitch struct {
 	Enabled Enabled `yaml:"enabled"`
@@ -158,7 +149,6 @@ type MetricCollection struct {
 	RequestDuration  bool `yaml:"request_duration"`
 	ResponseSize     bool `yaml:"response_size"`
 	InFlightRequests bool `yaml:"in_flight_requests"`
-	DatabasePool     bool `yaml:"database_pool"`
 }
 
 type ApplicationFeatures struct {

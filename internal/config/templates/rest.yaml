@@ -31,13 +31,6 @@ http:
     shutdown: 10s
   limits:
     max_body_bytes: 1048576           # 0 отключает ограничение; 1048576 = 1 MiB.
-  database_pool:
-    enabled: enable                   # Использовать pool database/sql с переиспользованием соединений.
-    max_open_conns: 10                # Максимум открытых соединений с БД; 0 = без лимита.
-    max_idle_conns: 10                # Максимум простаивающих соединений в пуле.
-    conn_max_idle_time: 5m            # Формат Go duration; 0s отключает лимит idle-времени.
-    conn_max_lifetime: 1h             # Формат Go duration; 0s отключает лимит жизни соединения.
-    ping_timeout: 5s                  # Таймаут проверки подключения при старте приложения.
   graceful_shutdown:
     enabled: enable                   # Поддерживается только enable: корректно завершает HTTP server по SIGINT/SIGTERM.
   health:
@@ -154,7 +147,6 @@ observability:
       request_duration: true
       response_size: true
       in_flight_requests: true
-      database_pool: true
     labels: [method, route, status]   # Допустимые значения: method, route, status.
 
 # ------------------------------------------------------------------------------

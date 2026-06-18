@@ -134,8 +134,8 @@ func TestRestConfigUsesOnlySupportedOptionalFeatures(t *testing.T) {
 		t.Fatal("rest.yaml must define the auto_sqlc switch")
 	}
 	http := requireMapValue(t, rest, "http")
-	if _, exists := http["database_pool"]; !exists {
-		t.Fatal("http.database_pool must define database connection pool settings")
+	if _, exists := http["database_pool"]; exists {
+		t.Fatal("database/sql pooling is an implementation detail and must not be an HTTP feature switch")
 	}
 	gracefulShutdown := requireMapValue(t, http, "graceful_shutdown")
 	if gracefulShutdown["enabled"] != true && gracefulShutdown["enabled"] != "enable" && gracefulShutdown["enabled"] != "enabled" {
@@ -160,6 +160,10 @@ func TestRestConfigUsesOnlySupportedOptionalFeatures(t *testing.T) {
 	metrics := requireMapValue(t, observability, "metrics")
 	if _, exists := metrics["enabled"]; !exists {
 		t.Fatal("metrics must have an explicit enabled switch")
+	}
+	collect := requireMapValue(t, metrics, "collect")
+	if _, exists := collect["database_pool"]; exists {
+		t.Fatal("database pool reuse is not a configurable feature")
 	}
 }
 

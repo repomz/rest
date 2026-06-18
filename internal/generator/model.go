@@ -70,12 +70,6 @@ type HTTPFeatures struct {
 	IdleTimeout           string
 	ShutdownTimeout       string
 	MaxBodyBytes          int64
-	DatabasePool          bool
-	MaxOpenConns          int
-	MaxIdleConns          int
-	ConnMaxIdleTime       string
-	ConnMaxLifetime       string
-	PingTimeout           string
 	GracefulShutdown      bool
 	Health                bool
 	HealthPath            string
@@ -119,7 +113,6 @@ type MetricsFeatures struct {
 	RequestDuration  bool
 	ResponseSize     bool
 	InFlightRequests bool
-	DatabasePool     bool
 	Labels           []string
 }
 

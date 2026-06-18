@@ -52,13 +52,11 @@ func Dial(dsn string) (*sql.DB, *db.Queries, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("sql.Open failed: %w", err)
 	}
-	{{- if .Features.HTTP.DatabasePool }}
-	dbase.SetMaxOpenConns({{ intDefault .Features.HTTP.MaxOpenConns 10 }})
-	dbase.SetMaxIdleConns({{ intDefault .Features.HTTP.MaxIdleConns 10 }})
-	dbase.SetConnMaxIdleTime(mustDuration({{ printf "%q" (defaultString .Features.HTTP.ConnMaxIdleTime "5m") }}))
-	dbase.SetConnMaxLifetime(mustDuration({{ printf "%q" (defaultString .Features.HTTP.ConnMaxLifetime "1h") }}))
-	{{- end }}
-	ctx, cancel := context.WithTimeout(context.Background(), mustDuration({{ printf "%q" (defaultString .Features.HTTP.PingTimeout "5s") }}))
+	dbase.SetMaxOpenConns(10)
+	dbase.SetMaxIdleConns(10)
+	dbase.SetConnMaxIdleTime(5 * time.Minute)
+	dbase.SetConnMaxLifetime(time.Hour)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := dbase.PingContext(ctx); err != nil {
 		_ = dbase.Close()

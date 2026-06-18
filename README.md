@@ -91,7 +91,7 @@ go build -trimpath -ldflags="-s -w" -o bin/rest ./cmd/rest
 
 ## Статус
 
-Готово: SQLC/PostgreSQL generation, OpenAPI, Docker, zap logging, metrics, handler tests, curl docs, DB connection pool, graceful shutdown, CI/CD workflow templates, safe reload, self-update.
+Готово: SQLC/PostgreSQL generation, OpenAPI, Docker, zap logging, metrics, handler tests, curl docs, graceful shutdown, CI/CD workflow templates, safe reload, self-update.
 
 Пока не готово: MongoDB generator, auth generator, plugin system, dry-run/doctor и полноценные migration-инструменты для уже сгенерированных проектов.
 

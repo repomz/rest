@@ -320,12 +320,6 @@ func renderFile(path, tmpl string, data renderData) error {
 			}
 			return value
 		},
-		"intDefault": func(value, fallback int) int {
-			if value == 0 {
-				return fallback
-			}
-			return value
-		},
 		"join": strings.Join,
 		"contains": func(values []string, value string) bool {
 			for _, item := range values {

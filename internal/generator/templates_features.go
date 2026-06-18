@@ -102,14 +102,12 @@ func Handler(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, "%s_http_response_size_bytes_sum{%s} %d\n", namespace, labelSet, value.responseBytes)
 		{{- end }}
 	}
-	{{- if .Features.Metrics.DatabasePool }}
 	if readDBStats != nil {
 		stats := readDBStats()
 		fmt.Fprintf(w, "%s_db_open_connections %d\n", namespace, stats.OpenConnections)
 		fmt.Fprintf(w, "%s_db_connections_in_use %d\n", namespace, stats.InUse)
 		fmt.Fprintf(w, "%s_db_idle_connections %d\n", namespace, stats.Idle)
 	}
-	{{- end }}
 }
 
 type responseRecorder struct {
