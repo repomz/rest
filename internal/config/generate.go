@@ -11,18 +11,30 @@ import (
 )
 
 func Generate(dir string) error {
-	return generate(dir, false)
+	return generate(dir, configModeDefault)
 }
 
 func GenerateForSQLC(dir string) error {
-	return generate(dir, true)
+	return generate(dir, configModeSQLC)
 }
 
-func generate(dir string, enableSQLC bool) error {
+func GenerateForExample(dir string) error {
+	return generate(dir, configModeExample)
+}
+
+type configMode int
+
+const (
+	configModeDefault configMode = iota
+	configModeSQLC
+	configModeExample
+)
+
+func generate(dir string, mode configMode) error {
 	if dir == "" {
 		dir = "rest_config"
 	}
-	files, err := configFiles(enableSQLC)
+	files, err := configFiles(mode)
 	if err != nil {
 		return err
 	}
@@ -50,7 +62,7 @@ type configFile struct {
 	content []byte
 }
 
-func configFiles(enableSQLC bool) ([]configFile, error) {
+func configFiles(mode configMode) ([]configFile, error) {
 	var files []configFile
 	err := fs.WalkDir(configtemplates.Files, ".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -63,8 +75,11 @@ func configFiles(enableSQLC bool) ([]configFile, error) {
 		if err != nil {
 			return err
 		}
-		if enableSQLC && filepath.Base(path) == "sqlc_rest.yaml" {
+		if mode != configModeDefault && filepath.Base(path) == "sqlc_rest.yaml" {
 			content = []byte(strings.Replace(string(content), "  enable: disable", "  enable: enable", 1))
+			if mode == configModeExample {
+				content = []byte(strings.Replace(string(content), "  sqlc_path: ../sqlc/sqlc.yaml", "  sqlc_path: ../sqlc_example/sqlc.yaml", 1))
+			}
 		}
 		files = append(files, configFile{name: filepath.Base(path), content: content})
 		return nil

@@ -85,13 +85,8 @@ func TestRunInitModes(t *testing.T) {
 		{
 			name:       "example",
 			args:       []string{"--example"},
-			want:       []string{"rest_config/rest.yaml", "sqlc_example/schema/studies.sql", "sqlc_example/queries/studies.sql"},
+			want:       []string{"rest_config/rest.yaml", "sqlc_example/sqlc.yaml", "sqlc_example/schema/studies.sql", "sqlc_example/queries/studies.sql"},
 			wantAbsent: []string{"sqlc/sqlc.yaml", "sqlc/schema/item.sql", "sqlc/queries/item.sql"},
-		},
-		{
-			name: "sqlc and example",
-			args: []string{"--sqlc", "--example"},
-			want: []string{"rest_config/rest.yaml", "sqlc/sqlc.yaml", "sqlc/schema/item.sql", "sqlc_example/schema/studies.sql"},
 		},
 	}
 	for _, test := range tests {
@@ -113,5 +108,11 @@ func TestRunInitModes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRunInitRejectsSQLCAndExampleTogether(t *testing.T) {
+	if err := runInit([]string{"--sqlc", "--example", "--out", t.TempDir()}); err == nil {
+		t.Fatal("expected --sqlc and --example conflict")
 	}
 }

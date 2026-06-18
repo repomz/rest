@@ -13,8 +13,7 @@
 
 ```bash
 make build-rest
-./bin/rest init --sqlc --example
-sqlc generate -f sqlc/sqlc.yaml
+./bin/rest init --example
 ./bin/rest generate
 go test ./...
 ```
@@ -23,7 +22,7 @@ go test ./...
 
 ```bash
 ./bin/rest init
-sqlc generate -f sqlc/sqlc.yaml
+# Укажите enable: enable и корректный sqlc_path в rest_config/sqlc_rest.yaml.
 ./bin/rest generate
 ```
 
@@ -32,12 +31,28 @@ sqlc generate -f sqlc/sqlc.yaml
 | Команда | Что делает |
 | --- | --- |
 | `rest init` | Создает `rest_config/*.yaml` |
-| `rest init --sqlc` | Добавляет минимальный SQLC-каркас |
-| `rest init --sqlc --example` | Добавляет SQLC-каркас и рабочий пример |
+| `rest init --sqlc` | Создает пользовательский `sqlc/`-каркас и удаляет `sqlc_example/` |
+| `rest init --example` | Создает автономный `sqlc_example/` с примером `study` |
+| `rest init --out path` | Создает конфигурацию и выбранный SQLC-режим в другом каталоге |
 | `rest generate` | Генерирует REST-приложение |
 | `rest generate -config path` | Использует другой каталог конфигурации |
 | `rest update` | Обновляет бинарник `rest` из GitHub Releases |
 | `rest version` | Показывает текущую версию |
+
+`rest generate` по умолчанию выполняет под капотом:
+
+```bash
+sqlc generate -f <sqlc_path>
+go mod tidy
+```
+
+Для этого должен быть установлен `sqlc`:
+
+```bash
+go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+```
+
+Если нужно запускать SQLC вручную, установите `auto_sqlc: disable` в `rest_config/rest.yaml` и перед `rest generate` выполните `sqlc generate -f <sqlc_path>` самостоятельно. Значение `<sqlc_path>` берется из `rest_config/sqlc_rest.yaml`.
 
 ## Что Генерируется
 
@@ -50,9 +65,9 @@ internal/app/transport/httpmodels
 internal/app/transport/httpserver
 ```
 
-Опционально генерируются `Dockerfile`, `.env.example`, `Makefile`, `docs/swagger.yaml`, `curl/*.md`, metrics, logging и Goose init migration.
+Опционально генерируются `Dockerfile`, `.env.example`, `Makefile`, `docs/swagger.yaml`, `.github/workflows/*.yaml`, `curl/*.md`, metrics, logging и Goose init migration.
 
-Файлы в `internal/app/*` пересоздаются при каждом `rest generate`. Пользовательскую бизнес-логику не стоит писать прямо в этих файлах.
+Файлы в `internal/app/*` пересоздаются при каждом `rest generate`. При включенном `safe_reload` генератор сравнивает их с последним снимком и по каждому измененному файлу предлагает сохранить пользовательскую версию либо перезаписать ее.
 
 ## Документация
 
@@ -76,9 +91,9 @@ go build -trimpath -ldflags="-s -w" -o bin/rest ./cmd/rest
 
 ## Статус
 
-Готово: SQLC/PostgreSQL generation, OpenAPI, Docker, zap logging, metrics, handler tests, curl docs, self-update.
+Готово: SQLC/PostgreSQL generation, OpenAPI, Docker, zap logging, metrics, handler tests, curl docs, DB connection pool, graceful shutdown, CI/CD workflow templates, safe reload, self-update.
 
-Пока не готово: MongoDB generator, auth generator, plugin system, safe upgrade tooling для уже сгенерированных проектов.
+Пока не готово: MongoDB generator, auth generator, plugin system, dry-run/doctor и полноценные migration-инструменты для уже сгенерированных проектов.
 
 ## License
 

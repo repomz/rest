@@ -1,6 +1,8 @@
 # Deployment
 
-Этот репозиторий деплоится как CLI-бинарник `rest`. CI/CD относится именно к генератору `rest_generator`.
+Этот репозиторий деплоится как CLI-бинарник `rest`. Описанные ниже workflows относятся именно к генератору `rest_generator`.
+
+Опции `features.ci` и `features.cd` в `rest_config/rest.yaml` имеют другое назначение: они генерируют GitHub Actions workflows внутри целевого REST-приложения.
 
 ## Release flow
 

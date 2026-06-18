@@ -70,6 +70,21 @@ func TestGenerateForSQLCEnablesSQLC(t *testing.T) {
 	}
 }
 
+func TestGenerateForExampleUsesExampleSQLCPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "rest_config")
+	if err := GenerateForExample(dir); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "sqlc_rest.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	if !strings.Contains(text, "  enable: enable") || !strings.Contains(text, "  sqlc_path: ../sqlc_example/sqlc.yaml") {
+		t.Fatalf("example config must enable SQLC and point to sqlc_example:\n%s", content)
+	}
+}
+
 func TestFutureFeatureConfigsAreValidContracts(t *testing.T) {
 	mongo := readEmbeddedYAMLMap(t, "mongo_rest.yaml")
 	for _, key := range []string{"version", "driver", "connection", "generation", "models", "indexes", "methods", "hooks"} {
@@ -115,13 +130,24 @@ func TestRestConfigUsesOnlySupportedOptionalFeatures(t *testing.T) {
 	if _, exists := rest["safe_reload"]; !exists {
 		t.Fatal("rest.yaml must define the safe_reload switch")
 	}
+	if _, exists := rest["auto_sqlc"]; !exists {
+		t.Fatal("rest.yaml must define the auto_sqlc switch")
+	}
+	http := requireMapValue(t, rest, "http")
+	if _, exists := http["database_pool"]; !exists {
+		t.Fatal("http.database_pool must define database connection pool settings")
+	}
+	gracefulShutdown := requireMapValue(t, http, "graceful_shutdown")
+	if gracefulShutdown["enabled"] != true && gracefulShutdown["enabled"] != "enable" && gracefulShutdown["enabled"] != "enabled" {
+		t.Fatal("http.graceful_shutdown.enabled must be present and enabled")
+	}
 	features := requireMapValue(t, rest, "features")
 	for _, removed := range []string{"safe_app_reload", "safe_config_reload"} {
 		if _, exists := features[removed]; exists {
 			t.Fatalf("removed feature %q must not remain in rest.yaml", removed)
 		}
 	}
-	for _, key := range []string{"makefile", "gitignore", "env", "init_db"} {
+	for _, key := range []string{"makefile", "gitignore", "env", "init_db", "ci", "cd"} {
 		section := requireMapValue(t, features, key)
 		if _, exists := section["enabled"]; !exists {
 			t.Fatalf("feature %q must have an explicit enabled switch", key)
@@ -299,7 +325,7 @@ func TestLoadFeatureSwitches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bundle.Rest.SQL.Bool() || bundle.Rest.Mongo.Bool() || bundle.Rest.Auth.Bool() {
+	if !bundle.Rest.SQL.Bool() || !bundle.Rest.AutoSQLC.Bool() || bundle.Rest.Mongo.Bool() || bundle.Rest.Auth.Bool() {
 		t.Fatalf("unexpected data feature switches: %+v", bundle.Rest)
 	}
 	if bundle.SQL == nil || bundle.SQL.SQLC.Path == "" {

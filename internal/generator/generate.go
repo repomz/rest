@@ -75,7 +75,7 @@ func Generate(opts Options) error {
 		"internal/app/common/slugerrors/errors.go":        slugErrorsTemplate,
 		"internal/app/config/config.go":                   configTemplate,
 		"internal/app/domain/error.go":                    domainErrorTemplate,
-		"internal/app/transport/httpserver/sever.go":      httpServerTemplate,
+		"internal/app/transport/httpserver/server.go":     httpServerTemplate,
 		"internal/app/transport/httpserver/interfaces.go": httpServerInterfacesTemplate,
 		"cmd/main.go": appMainTemplate,
 	}
@@ -106,6 +106,12 @@ func Generate(opts Options) error {
 	}
 	if opts.Features.Metrics.Enabled {
 		files["internal/app/metrics/metrics.go"] = metricsTemplate
+	}
+	if opts.Features.Build.CI {
+		files[defaultPath(opts.Features.Build.CIPath, ".github/workflows/ci.yaml")] = ciWorkflowTemplate
+	}
+	if opts.Features.Build.CD {
+		files[defaultPath(opts.Features.Build.CDPath, ".github/workflows/cd.yaml")] = cdWorkflowTemplate
 	}
 
 	var generatedFiles []string
@@ -294,6 +300,8 @@ func generatedOptionalPaths(features FeatureOptions) []string {
 		defaultPath(features.Build.MakefilePath, "Makefile"),
 		defaultPath(features.Build.InitDBPath, "init_db.sh"),
 		defaultPath(features.Build.EnvPath, ".env.example"),
+		defaultPath(features.Build.CIPath, ".github/workflows/ci.yaml"),
+		defaultPath(features.Build.CDPath, ".github/workflows/cd.yaml"),
 		defaultPath(features.Docker.Output, "Dockerfile"),
 		defaultPath(features.Docker.DockerignoreOutput, ".dockerignore"),
 	}

@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	{{- if .Features.HTTP.GracefulShutdown }}
 	"os"
 	"os/signal"
 	"syscall"
+	{{- end }}
 	"time"
 
 	"github.com/gorilla/mux"
@@ -50,9 +52,18 @@ func Dial(dsn string) (*sql.DB, *db.Queries, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("sql.Open failed: %w", err)
 	}
-	dbase.SetMaxIdleConns(10)
-	dbase.SetMaxOpenConns(10)
-	dbase.SetConnMaxLifetime(time.Minute)
+	{{- if .Features.HTTP.DatabasePool }}
+	dbase.SetMaxOpenConns({{ intDefault .Features.HTTP.MaxOpenConns 10 }})
+	dbase.SetMaxIdleConns({{ intDefault .Features.HTTP.MaxIdleConns 10 }})
+	dbase.SetConnMaxIdleTime(mustDuration({{ printf "%q" (defaultString .Features.HTTP.ConnMaxIdleTime "5m") }}))
+	dbase.SetConnMaxLifetime(mustDuration({{ printf "%q" (defaultString .Features.HTTP.ConnMaxLifetime "1h") }}))
+	{{- end }}
+	ctx, cancel := context.WithTimeout(context.Background(), mustDuration({{ printf "%q" (defaultString .Features.HTTP.PingTimeout "5s") }}))
+	defer cancel()
+	if err := dbase.PingContext(ctx); err != nil {
+		_ = dbase.Close()
+		return nil, nil, fmt.Errorf("postgres ping failed: %w", err)
+	}
 	return dbase, db.New(dbase), nil
 }
 
@@ -155,6 +166,7 @@ func run() error {
 		WriteTimeout: mustDuration({{ printf "%q" (defaultString .Features.HTTP.WriteTimeout "30s") }}),
 		IdleTimeout: mustDuration({{ printf "%q" (defaultString .Features.HTTP.IdleTimeout "60s") }}),
 	}
+	{{- if .Features.HTTP.GracefulShutdown }}
 	stopped := make(chan struct{})
 	go func() {
 		sigint := make(chan os.Signal, 1)
@@ -174,6 +186,9 @@ func run() error {
 	}
 	<-stopped
 	return nil
+	{{- else }}
+	return srv.ListenAndServe()
+	{{- end }}
 }
 
 func mustDuration(value string) time.Duration {
@@ -324,4 +339,75 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "$DB_USER";
 SQL
 
 echo "Готово: база '$DB_NAME' доступна пользователю '$DB_USER'."
+`
+
+const ciWorkflowTemplate = `name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.3"
+          cache: true
+
+      - name: Format check
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race ./...
+
+      - name: Build
+        run: go build ./cmd
+`
+
+const cdWorkflowTemplate = `name: CD
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{"{{"}} github.actor {{"}}"}}
+          password: ${{"{{"}} secrets.GITHUB_TOKEN {{"}}"}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{"{{"}} github.repository {{"}}"}}:${{"{{"}} github.ref_name {{"}}"}}
 `

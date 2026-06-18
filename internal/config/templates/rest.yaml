@@ -31,6 +31,15 @@ http:
     shutdown: 10s
   limits:
     max_body_bytes: 1048576           # 0 отключает ограничение; 1048576 = 1 MiB.
+  database_pool:
+    enabled: enable                   # Использовать pool database/sql с переиспользованием соединений.
+    max_open_conns: 10                # Максимум открытых соединений с БД; 0 = без лимита.
+    max_idle_conns: 10                # Максимум простаивающих соединений в пуле.
+    conn_max_idle_time: 5m            # Формат Go duration; 0s отключает лимит idle-времени.
+    conn_max_lifetime: 1h             # Формат Go duration; 0s отключает лимит жизни соединения.
+    ping_timeout: 5s                  # Таймаут проверки подключения при старте приложения.
+  graceful_shutdown:
+    enabled: enable                   # Поддерживается только enable: корректно завершает HTTP server по SIGINT/SIGTERM.
   health:
     enabled: true
     path: /health
@@ -56,6 +65,9 @@ http:
 # Детальные настройки находятся в sqlc_rest.yaml, mongo_rest.yaml и auth_rest.yaml.
 # MongoDB и auth описаны как будущие контракты и пока не генерируются.
 sql: enable
+auto_sqlc: enable                    # При rest generate автоматически выполняет: sqlc generate -f <sqlc_path>.
+                                      # Требуется установленный sqlc: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest.
+                                      # Если disable, выполните sqlc generate -f <sqlc_path> самостоятельно перед rest generate.
 mongo: disable
 auth: disable
 
@@ -163,3 +175,9 @@ features:
   init_db:
     enabled: false
     output: init_db.sh               # Генерируется исполняемым файлом.
+  ci:
+    enabled: false
+    output: .github/workflows/ci.yaml # GitHub Actions: gofmt, go test, go vet, go build.
+  cd:
+    enabled: false
+    output: .github/workflows/cd.yaml # GitHub Actions: build Docker image on tags/releases; требует docker.enabled.

@@ -3,6 +3,7 @@ package appgen
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -39,6 +40,9 @@ func (g Generator) Generate(configDir string) error {
 	if !hasEnabledFeature {
 		return fmt.Errorf("no implemented generation feature is enabled; set sqlc.enable to enable in sqlc_rest.yaml after preparing SQLC files")
 	}
+	if err := runAutoSQLC(ctx); err != nil {
+		return err
+	}
 	if err := ensureProjectModule(ctx); err != nil {
 		return err
 	}
@@ -49,6 +53,9 @@ func (g Generator) Generate(configDir string) error {
 		if err := feature.Generate(ctx); err != nil {
 			return fmt.Errorf("generate feature %s: %w", feature.Name(), err)
 		}
+	}
+	if err := runGoModTidy(ctx.ProjectDir); err != nil {
+		return err
 	}
 	return nil
 }
@@ -80,6 +87,12 @@ func validateConfig(bundle config.Bundle) error {
 	if bundle.Rest.HTTP.Port < 1 || bundle.Rest.HTTP.Port > 65535 {
 		return fmt.Errorf("http.port must be between 1 and 65535")
 	}
+	if !bundle.Rest.HTTP.GracefulShutdown.Enabled.Bool() {
+		return fmt.Errorf("http.graceful_shutdown.enabled supports only enable")
+	}
+	if bundle.Rest.HTTP.DatabasePool.MaxOpenConns < 0 || bundle.Rest.HTTP.DatabasePool.MaxIdleConns < 0 {
+		return fmt.Errorf("http.database_pool connection limits must be non-negative")
+	}
 	for name, path := range map[string]string{
 		"http.base_path":             bundle.Rest.HTTP.BasePath,
 		"http.health.path":           bundle.Rest.HTTP.Health.Path,
@@ -92,12 +105,15 @@ func validateConfig(bundle config.Bundle) error {
 		}
 	}
 	for name, value := range map[string]string{
-		"http.timeouts.read_header":    bundle.Rest.HTTP.Timeouts.ReadHeader,
-		"http.timeouts.read":           bundle.Rest.HTTP.Timeouts.Read,
-		"http.timeouts.write":          bundle.Rest.HTTP.Timeouts.Write,
-		"http.timeouts.idle":           bundle.Rest.HTTP.Timeouts.Idle,
-		"http.timeouts.shutdown":       bundle.Rest.HTTP.Timeouts.Shutdown,
-		"http.middleware.cors.max_age": bundle.Rest.HTTP.Middleware.CORS.MaxAge,
+		"http.timeouts.read_header":             bundle.Rest.HTTP.Timeouts.ReadHeader,
+		"http.timeouts.read":                    bundle.Rest.HTTP.Timeouts.Read,
+		"http.timeouts.write":                   bundle.Rest.HTTP.Timeouts.Write,
+		"http.timeouts.idle":                    bundle.Rest.HTTP.Timeouts.Idle,
+		"http.timeouts.shutdown":                bundle.Rest.HTTP.Timeouts.Shutdown,
+		"http.database_pool.conn_max_idle_time": bundle.Rest.HTTP.DatabasePool.ConnMaxIdleTime,
+		"http.database_pool.conn_max_lifetime":  bundle.Rest.HTTP.DatabasePool.ConnMaxLifetime,
+		"http.database_pool.ping_timeout":       bundle.Rest.HTTP.DatabasePool.PingTimeout,
+		"http.middleware.cors.max_age":          bundle.Rest.HTTP.Middleware.CORS.MaxAge,
 	} {
 		if value == "" {
 			continue
@@ -269,6 +285,47 @@ func defaultValue(value, fallback string) string {
 	return value
 }
 
+func runAutoSQLC(ctx Context) error {
+	if !ctx.Config.Rest.AutoSQLC.Bool() || ctx.Config.SQL == nil || !ctx.Config.SQL.SQLC.Enabled.Bool() {
+		return nil
+	}
+	sqlcPath := resolveSQLCPath(ctx.ConfigDir, ctx.Config.SQL.SQLC.Path)
+	cmd := exec.Command("sqlc", "generate", "-f", sqlcPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("run sqlc generate -f %s: %w; install sqlc with: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest", sqlcPath, err)
+	}
+	return nil
+}
+
+func runGoModTidy(projectDir string) error {
+	cmd := exec.Command("go", "mod", "tidy")
+	cmd.Dir = projectDir
+	cmd.Env = goCommandEnv()
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("run go mod tidy: %w", err)
+	}
+	return nil
+}
+
+func goCommandEnv() []string {
+	env := os.Environ()
+	if os.Getenv("GOCACHE") == "" {
+		env = append(env, "GOCACHE="+filepath.Join(os.TempDir(), "rest_generator-go-build"))
+	}
+	return env
+}
+
+func resolveSQLCPath(configDir, sqlcPath string) string {
+	if filepath.IsAbs(sqlcPath) {
+		return sqlcPath
+	}
+	return filepath.Clean(filepath.Join(configDir, sqlcPath))
+}
+
 type SQLFeature struct{}
 
 func (SQLFeature) Name() string { return "sqlc" }
@@ -282,9 +339,7 @@ func (SQLFeature) Generate(ctx Context) error {
 		return fmt.Errorf("sqlc_rest.yaml is required when sql is enabled")
 	}
 	sqlcPath := ctx.Config.SQL.SQLC.Path
-	if !filepath.IsAbs(sqlcPath) {
-		sqlcPath = filepath.Clean(filepath.Join(ctx.ConfigDir, sqlcPath))
-	}
+	sqlcPath = resolveSQLCPath(ctx.ConfigDir, sqlcPath)
 	configPath, err := filepath.Rel(ctx.ProjectDir, ctx.ConfigDir)
 	if err != nil {
 		return fmt.Errorf("resolve config path from project: %w", err)
@@ -310,6 +365,10 @@ func (SQLFeature) Generate(ctx Context) error {
 				InitDB:           ctx.Config.Rest.Features.InitDB.Enabled.Bool(),
 				InitDBPath:       ctx.Config.Rest.Features.InitDB.Output,
 				SafeReload:       ctx.Config.Rest.SafeReload.Bool(),
+				CI:               ctx.Config.Rest.Features.CI.Enabled.Bool(),
+				CIPath:           ctx.Config.Rest.Features.CI.Output,
+				CD:               ctx.Config.Rest.Features.CD.Enabled.Bool(),
+				CDPath:           ctx.Config.Rest.Features.CD.Output,
 				InitMigration:    ctx.Config.SQL.InitMigration.Bool(),
 				MigrationEngine:  ctx.Config.SQL.MigrationEngine,
 				MigrationsPath:   ctx.Config.SQL.MigrationOutput,
@@ -339,6 +398,13 @@ func (SQLFeature) Generate(ctx Context) error {
 				IdleTimeout:           ctx.Config.Rest.HTTP.Timeouts.Idle,
 				ShutdownTimeout:       ctx.Config.Rest.HTTP.Timeouts.Shutdown,
 				MaxBodyBytes:          ctx.Config.Rest.HTTP.Limits.MaxBodyBytes,
+				DatabasePool:          ctx.Config.Rest.HTTP.DatabasePool.Enabled.Bool(),
+				MaxOpenConns:          ctx.Config.Rest.HTTP.DatabasePool.MaxOpenConns,
+				MaxIdleConns:          ctx.Config.Rest.HTTP.DatabasePool.MaxIdleConns,
+				ConnMaxIdleTime:       ctx.Config.Rest.HTTP.DatabasePool.ConnMaxIdleTime,
+				ConnMaxLifetime:       ctx.Config.Rest.HTTP.DatabasePool.ConnMaxLifetime,
+				PingTimeout:           ctx.Config.Rest.HTTP.DatabasePool.PingTimeout,
+				GracefulShutdown:      ctx.Config.Rest.HTTP.GracefulShutdown.Enabled.Bool(),
 				Health:                ctx.Config.Rest.HTTP.Health.Enabled.Bool(),
 				HealthPath:            ctx.Config.Rest.HTTP.Health.Path,
 			},

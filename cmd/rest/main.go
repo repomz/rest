@@ -46,6 +46,9 @@ func runInit(args []string) error {
 	if err != nil {
 		return err
 	}
+	if options.withSQLC && options.withExample {
+		return fmt.Errorf("use either --sqlc or --example, not both")
+	}
 	if options.withSQLC {
 		if err := sqlcconfig.ValidateProject(options.out); err != nil {
 			return err
@@ -57,7 +60,11 @@ func runInit(args []string) error {
 		}
 	}
 	configDir := filepath.Join(options.out, "rest_config")
-	if options.withSQLC {
+	if options.withExample {
+		if err := config.GenerateForExample(configDir); err != nil {
+			return err
+		}
+	} else if options.withSQLC {
 		if err := config.GenerateForSQLC(configDir); err != nil {
 			return err
 		}
@@ -67,6 +74,9 @@ func runInit(args []string) error {
 		}
 	}
 	if options.withSQLC {
+		if err := sqlcconfig.RemoveExample(options.out); err != nil {
+			return err
+		}
 		if err := sqlcconfig.GenerateProject(options.out); err != nil {
 			return err
 		}
@@ -181,5 +191,5 @@ func parseUpdateOptions(args []string) (updateOptions, error) {
 }
 
 func usageError() error {
-	return fmt.Errorf("usage: rest init [--sqlc] [--example] [--out .] | rest generate [-config rest_config] | rest update [--version vX.Y.Z] [--force] | rest version")
+	return fmt.Errorf("usage: rest init [--sqlc|--example] [--out .] | rest generate [-config rest_config] | rest update [--version vX.Y.Z] [--force] | rest version")
 }

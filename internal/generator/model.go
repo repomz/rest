@@ -36,6 +36,10 @@ type BuildFeatures struct {
 	InitDB           bool
 	InitDBPath       string
 	SafeReload       bool
+	CI               bool
+	CIPath           string
+	CD               bool
+	CDPath           string
 	InitMigration    bool
 	MigrationEngine  string
 	MigrationsPath   string
@@ -66,6 +70,13 @@ type HTTPFeatures struct {
 	IdleTimeout           string
 	ShutdownTimeout       string
 	MaxBodyBytes          int64
+	DatabasePool          bool
+	MaxOpenConns          int
+	MaxIdleConns          int
+	ConnMaxIdleTime       string
+	ConnMaxLifetime       string
+	PingTimeout           string
+	GracefulShutdown      bool
 	Health                bool
 	HealthPath            string
 }

@@ -38,6 +38,13 @@ func ValidateExample(root string) error {
 	return validateTargets(files)
 }
 
+func RemoveExample(root string) error {
+	if root == "" {
+		root = "."
+	}
+	return os.RemoveAll(filepath.Join(root, "sqlc_example"))
+}
+
 func generate(root, templateRoot string) error {
 	files, err := plannedFiles(root, templateRoot)
 	if err != nil {

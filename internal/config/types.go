@@ -9,6 +9,7 @@ type Rest struct {
 	Environment   string              `yaml:"environment"`
 	HTTP          HTTP                `yaml:"http"`
 	SQL           Enabled             `yaml:"sql"`
+	AutoSQLC      Enabled             `yaml:"auto_sqlc"`
 	Mongo         Enabled             `yaml:"mongo"`
 	Auth          Enabled             `yaml:"auth"`
 	SafeReload    Enabled             `yaml:"safe_reload"`
@@ -21,14 +22,16 @@ type Rest struct {
 }
 
 type HTTP struct {
-	Framework  string       `yaml:"framework"`
-	Host       string       `yaml:"host"`
-	Port       int          `yaml:"port"`
-	BasePath   string       `yaml:"base_path"`
-	Timeouts   HTTPTimeouts `yaml:"timeouts"`
-	Limits     HTTPLimits   `yaml:"limits"`
-	Health     Health       `yaml:"health"`
-	Middleware Middleware   `yaml:"middleware"`
+	Framework        string          `yaml:"framework"`
+	Host             string          `yaml:"host"`
+	Port             int             `yaml:"port"`
+	BasePath         string          `yaml:"base_path"`
+	Timeouts         HTTPTimeouts    `yaml:"timeouts"`
+	Limits           HTTPLimits      `yaml:"limits"`
+	DatabasePool     DatabasePool    `yaml:"database_pool"`
+	GracefulShutdown GeneratedSwitch `yaml:"graceful_shutdown"`
+	Health           Health          `yaml:"health"`
+	Middleware       Middleware      `yaml:"middleware"`
 }
 
 type HTTPTimeouts struct {
@@ -41,6 +44,17 @@ type HTTPTimeouts struct {
 
 type HTTPLimits struct {
 	MaxBodyBytes int64 `yaml:"max_body_bytes"`
+}
+type DatabasePool struct {
+	Enabled         Enabled `yaml:"enabled"`
+	MaxOpenConns    int     `yaml:"max_open_conns"`
+	MaxIdleConns    int     `yaml:"max_idle_conns"`
+	ConnMaxIdleTime string  `yaml:"conn_max_idle_time"`
+	ConnMaxLifetime string  `yaml:"conn_max_lifetime"`
+	PingTimeout     string  `yaml:"ping_timeout"`
+}
+type GeneratedSwitch struct {
+	Enabled Enabled `yaml:"enabled"`
 }
 type Health struct {
 	Enabled Enabled `yaml:"enabled"`
@@ -152,6 +166,8 @@ type ApplicationFeatures struct {
 	Gitignore GitignoreFeature `yaml:"gitignore"`
 	Env       EnvFeature       `yaml:"env"`
 	InitDB    GeneratedFile    `yaml:"init_db"`
+	CI        GeneratedFile    `yaml:"ci"`
+	CD        GeneratedFile    `yaml:"cd"`
 }
 type GeneratedFile struct {
 	Enabled Enabled `yaml:"enabled"`

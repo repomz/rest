@@ -13,7 +13,7 @@ func TestGenerateProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	checks := map[string]string{
-		"sqlc/sqlc.yaml":        `- "../sqlc_example/queries"`,
+		"sqlc/sqlc.yaml":        `- "queries"`,
 		"sqlc/schema/item.sql":  "CREATE TABLE items",
 		"sqlc/queries/item.sql": "-- name: CreateItem :one",
 	}
@@ -40,11 +40,25 @@ func TestGenerateExample(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
+		"sqlc_example/sqlc.yaml",
 		"sqlc_example/schema/studies.sql",
 		"sqlc_example/queries/studies.sql",
 	} {
 		if _, err := os.Stat(filepath.Join(dir, path)); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestRemoveExample(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateExample(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveExample(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "sqlc_example")); !os.IsNotExist(err) {
+		t.Fatalf("expected sqlc_example to be removed, got %v", err)
 	}
 }
