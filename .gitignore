@@ -15,7 +15,6 @@ docs/
 internal/app
 rest_config/
 examples/
-docs/swagger.yaml
 
 # binary directory
 bin/
