@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/repomz/rest_generator/internal/config"
+	"github.com/repomz/rest/internal/config"
 )
 
 func TestValidateConfigRequiresGracefulShutdown(t *testing.T) {

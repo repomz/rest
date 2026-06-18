@@ -3,7 +3,7 @@ package appgen
 import (
 	"path/filepath"
 
-	"github.com/repomz/rest_generator/internal/config"
+	"github.com/repomz/rest/internal/config"
 )
 
 type Context struct {

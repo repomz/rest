@@ -1,4 +1,4 @@
-module github.com/repomz/rest_generator
+module github.com/repomz/rest
 
 go 1.24.3
 

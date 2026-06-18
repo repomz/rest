@@ -18,7 +18,7 @@ import (
 
 const (
 	DefaultRepoOwner = "repomz"
-	DefaultRepoName  = "rest_generator"
+	DefaultRepoName  = "rest"
 )
 
 type Options struct {
@@ -124,7 +124,7 @@ func fetchRelease(ctx context.Context, opts Options) (release, error) {
 		return release{}, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "rest-generator-updater")
+	req.Header.Set("User-Agent", "rest-updater")
 	resp, err := opts.Client.Do(req)
 	if err != nil {
 		return release{}, err
@@ -160,7 +160,7 @@ func download(ctx context.Context, client *http.Client, url, target string) erro
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "rest-generator-updater")
+	req.Header.Set("User-Agent", "rest-updater")
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

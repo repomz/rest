@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	configtemplates "github.com/repomz/rest_generator/internal/config/templates"
+	configtemplates "github.com/repomz/rest/internal/config/templates"
 )
 
 func Generate(dir string) error {

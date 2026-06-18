@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	configtemplates "github.com/repomz/rest_generator/internal/config/templates"
+	configtemplates "github.com/repomz/rest/internal/config/templates"
 	"gopkg.in/yaml.v3"
 )
 

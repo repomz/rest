@@ -117,7 +117,7 @@ func (s safeReload) save(files []string) error {
 
 func (s safeReload) snapshotPath(rel string) string {
 	sum := sha256.Sum256([]byte(filepath.ToSlash(rel)))
-	return filepath.Join(s.root, ".rest_generator", "safe_reload", hex.EncodeToString(sum[:])+".snapshot")
+	return filepath.Join(s.root, ".rest", "safe_reload", hex.EncodeToString(sum[:])+".snapshot")
 }
 
 func uniqueSorted(values []string) []string {

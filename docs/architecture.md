@@ -1,10 +1,10 @@
 # Архитектура Проекта
 
-Документ описывает, как устроен `rest_generator`, за что отвечают основные файлы и как данные проходят путь от конфигурации и SQLC-источников до сгенерированного REST-приложения.
+Документ описывает, как устроен `rest`, за что отвечают основные файлы и как данные проходят путь от конфигурации и SQLC-источников до сгенерированного REST-приложения.
 
 ## Общая Картина
 
-`rest_generator`: CLI-приложение. Основной workflow:
+`rest`: CLI-приложение. Основной workflow:
 
 1. `rest init` создает редактируемую конфигурацию проекта.
 2. `rest generate` читает `rest_config/*.yaml` и при `auto_sqlc: enable` выполняет `sqlc generate -f <sqlc_path>`.
@@ -63,7 +63,7 @@ Entrypoint исполняемого файла `rest`.
 
 `runInit` умеет создавать:
 
-- только config-файлы REST Generator;
+- только config-файлы REST;
 - config-файлы плюс минимальный SQLC-проект;
 - config-файлы плюс автономный SQLC example-проект.
 
@@ -321,7 +321,7 @@ docs/swagger.yaml
 .github/workflows/ci.yaml
 .github/workflows/cd.yaml
 curl/*.md
-internal/sql/migrations/00001_rest_generator_init.sql
+internal/sql/migrations/00001_rest_init.sql
 internal/app/logging/logger.go
 internal/app/metrics/metrics.go
 ```
@@ -426,7 +426,7 @@ Templates разделены по зонам:
 Default repository:
 
 ```text
-repomz/rest_generator
+repomz/rest
 ```
 
 Ожидаемые имена release assets:
@@ -524,7 +524,7 @@ internal/app/transport
 - `.gitignore` управляется только внутри generator markers;
 - `.env` генерируется только при явной настройке и пишется с ограниченными правами;
 - generated migrations удаляются только при наличии generator marker.
-- safe reload snapshots хранятся в `.rest_generator/safe_reload`.
+- safe reload snapshots хранятся в `.rest/safe_reload`.
 
 ## Extension Points
 

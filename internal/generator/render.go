@@ -393,7 +393,7 @@ func normalizeGoImports(src []byte) []byte {
 			if strings.Contains(importPath, ".") {
 				group = 1
 			}
-			if strings.HasPrefix(importPath, "github.com/repomz/rest_generator/") {
+			if strings.HasPrefix(importPath, "github.com/repomz/rest/") {
 				group = 2
 			}
 			groups[group] = append(groups[group], line)

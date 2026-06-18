@@ -1,29 +1,56 @@
-# REST Generator
+# REST
 
-[![CI](https://github.com/repomz/rest_generator/actions/workflows/ci.yml/badge.svg)](https://github.com/repomz/rest_generator/actions/workflows/ci.yml)
+[![CI](https://github.com/repomz/rest/actions/workflows/ci.yml/badge.svg)](https://github.com/repomz/rest/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![sqlc](https://img.shields.io/badge/sqlc-supported-5C6BC0)](https://sqlc.dev/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-`rest_generator`: CLI на Go для генерации REST-приложения поверх SQLC/PostgreSQL.
+`rest`: CLI на Go для генерации REST-приложения поверх SQLC/PostgreSQL.
 
 Генератор читает SQL-схемы, SQLC-запросы и Go-код, созданный `sqlc`, а затем собирает приложение со слоями `domain`, `repository`, `service`, `transport`, OpenAPI, Dockerfile, logging, metrics, тестами и curl-примерами.
+
+## Установка
+
+Нужен Go 1.24 или новее:
+
+```bash
+go install github.com/repomz/rest/cmd/rest@latest
+```
+
+Бинарник будет установлен в `$(go env GOPATH)/bin`. Этот каталог должен находиться в `PATH`.
+
+Проверка:
+
+```bash
+rest version
+```
+
+Конкретную версию можно установить по release tag:
+
+```bash
+go install github.com/repomz/rest/cmd/rest@v0.1.0
+```
+
+Для последующих обновлений достаточно:
+
+```bash
+rest update
+```
 
 ## Быстрый Старт
 
 ```bash
-make build-rest
-./bin/rest init --example
-./bin/rest generate
+rest init --example
+rest generate
 go test ./...
 ```
 
 Если SQLC уже настроен:
 
 ```bash
-./bin/rest init
+rest init
 # Укажите enable: enable и корректный sqlc_path в rest_config/sqlc_rest.yaml.
-./bin/rest generate
+rest generate
 ```
 
 ## Команды

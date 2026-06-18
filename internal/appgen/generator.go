@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/repomz/rest_generator/internal/config"
-	"github.com/repomz/rest_generator/internal/generator"
+	"github.com/repomz/rest/internal/config"
+	"github.com/repomz/rest/internal/generator"
 )
 
 type Generator struct {
@@ -308,7 +308,7 @@ func runGoModTidy(projectDir string) error {
 func goCommandEnv() []string {
 	env := os.Environ()
 	if os.Getenv("GOCACHE") == "" {
-		env = append(env, "GOCACHE="+filepath.Join(os.TempDir(), "rest_generator-go-build"))
+		env = append(env, "GOCACHE="+filepath.Join(os.TempDir(), "rest-go-build"))
 	}
 	return env
 }

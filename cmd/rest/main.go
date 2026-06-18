@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"time"
 
-	"github.com/repomz/rest_generator/internal/appgen"
-	"github.com/repomz/rest_generator/internal/config"
-	"github.com/repomz/rest_generator/internal/selfupdate"
-	"github.com/repomz/rest_generator/internal/sqlcconfig"
+	"github.com/repomz/rest/internal/appgen"
+	"github.com/repomz/rest/internal/config"
+	"github.com/repomz/rest/internal/selfupdate"
+	"github.com/repomz/rest/internal/sqlcconfig"
 )
 
 var version = "dev"
@@ -34,7 +35,7 @@ func run(args []string) error {
 	case "update":
 		return runUpdate(args[1:])
 	case "version":
-		fmt.Println(version)
+		fmt.Println(currentVersion())
 		return nil
 	default:
 		return usageError()
@@ -133,7 +134,7 @@ func runUpdate(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	result, err := selfupdate.Update(ctx, selfupdate.Options{
-		CurrentVersion: version,
+		CurrentVersion: currentVersion(),
 		TargetVersion:  options.version,
 		Force:          options.force,
 		Stdout:         os.Stdout,
@@ -192,4 +193,22 @@ func parseUpdateOptions(args []string) (updateOptions, error) {
 
 func usageError() error {
 	return fmt.Errorf("usage: rest init [--sqlc|--example] [--out .] | rest generate [-config rest_config] | rest update [--version vX.Y.Z] [--force] | rest version")
+}
+
+func currentVersion() string {
+	buildVersion := ""
+	if info, ok := debug.ReadBuildInfo(); ok {
+		buildVersion = info.Main.Version
+	}
+	return resolveVersion(version, buildVersion)
+}
+
+func resolveVersion(linkerVersion, buildVersion string) string {
+	if linkerVersion != "" && linkerVersion != "dev" {
+		return linkerVersion
+	}
+	if buildVersion != "" && buildVersion != "(devel)" {
+		return buildVersion
+	}
+	return "dev"
 }

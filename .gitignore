@@ -14,7 +14,7 @@ internal/sql
 internal/app
 rest_config/
 examples/
-docs/
+docs/swagger.yaml
 
 # binary directory
 bin/
@@ -25,6 +25,7 @@ dist/
 
 # cache directory
 .cache/
+.rest/
 
 # Local environment and secrets
 .env

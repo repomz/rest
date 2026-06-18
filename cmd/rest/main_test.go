@@ -64,6 +64,26 @@ func TestParseUpdateOptions(t *testing.T) {
 	}
 }
 
+func TestResolveVersion(t *testing.T) {
+	tests := []struct {
+		name          string
+		linkerVersion string
+		buildVersion  string
+		want          string
+	}{
+		{name: "release linker version", linkerVersion: "v1.2.3", buildVersion: "v1.2.2", want: "v1.2.3"},
+		{name: "go install module version", linkerVersion: "dev", buildVersion: "v1.2.3", want: "v1.2.3"},
+		{name: "local build", linkerVersion: "dev", buildVersion: "(devel)", want: "dev"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := resolveVersion(test.linkerVersion, test.buildVersion); got != test.want {
+				t.Fatalf("version = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestRunInitModes(t *testing.T) {
 	tests := []struct {
 		name       string
