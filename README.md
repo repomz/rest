@@ -108,6 +108,12 @@ go test ./...
 go build -trimpath -ldflags="-s -w" -o bin/rest ./cmd/rest
 ```
 
+Run the representative 10/50-table generator benchmark:
+
+```bash
+make benchmark
+```
+
 Pull requests should stay focused, include tests for new generator behavior, and update documentation when CLI, configuration, or generated output changes.
 
 ## Status
