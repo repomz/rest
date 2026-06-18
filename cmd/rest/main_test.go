@@ -6,18 +6,18 @@ import (
 	"testing"
 )
 
-func TestParseConfigDir(t *testing.T) {
+func TestParseGenPath(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
 		want string
 	}{
 		{name: "default", want: "rest_config"},
-		{name: "custom", args: []string{"-config", "configs/rest"}, want: "configs/rest"},
+		{name: "custom", args: []string{"--path", "configs/rest"}, want: "configs/rest"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := parseConfigDir(test.args)
+			got, err := parseGenPath(test.args)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -28,20 +28,26 @@ func TestParseConfigDir(t *testing.T) {
 	}
 }
 
-func TestParseConfigDirRejectsInvalidArguments(t *testing.T) {
-	for _, args := range [][]string{{"-config"}, {"-sqlc", "sqlc.yaml"}, {"-out", "."}} {
-		if _, err := parseConfigDir(args); err == nil {
+func TestParseGenPathRejectsInvalidArguments(t *testing.T) {
+	for _, args := range [][]string{{"--path"}, {"-config", "rest_config"}, {"--out", "."}, {"-out", "."}} {
+		if _, err := parseGenPath(args); err == nil {
 			t.Fatalf("expected error for arguments %v", args)
 		}
 	}
 }
 
+func TestRunRejectsLegacyGenerateCommand(t *testing.T) {
+	if err := run([]string{"generate"}); err == nil {
+		t.Fatal("expected legacy generate command to be rejected")
+	}
+}
+
 func TestParseInitOptions(t *testing.T) {
-	got, err := parseInitOptions([]string{"--sqlc", "--example", "--out", "project"})
+	got, err := parseInitOptions([]string{"--sqlc", "--example", "--path", "project"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.out != "project" || !got.withSQLC || !got.withExample {
+	if got.path != "project" || !got.withSQLC || !got.withExample {
 		t.Fatalf("unexpected init options: %+v", got)
 	}
 	if _, err := parseInitOptions([]string{"--config", "rest_config"}); err == nil {
@@ -57,7 +63,7 @@ func TestParseUpdateOptions(t *testing.T) {
 	if got.version != "v0.2.0" || !got.force {
 		t.Fatalf("unexpected update options: %+v", got)
 	}
-	for _, args := range [][]string{{"--version"}, {"-config", "rest_config"}, {"--out", "."}, {"--sqlc"}} {
+	for _, args := range [][]string{{"--version"}, {"-config", "rest_config"}, {"--path", "."}, {"--sqlc"}} {
 		if _, err := parseUpdateOptions(args); err == nil {
 			t.Fatalf("expected error for arguments %v", args)
 		}
@@ -113,7 +119,7 @@ func TestRunInitModes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			dir := t.TempDir()
 			args := append([]string{}, test.args...)
-			args = append(args, "--out", dir)
+			args = append(args, "--path", dir)
 			if err := runInit(args); err != nil {
 				t.Fatal(err)
 			}
@@ -132,7 +138,7 @@ func TestRunInitModes(t *testing.T) {
 }
 
 func TestRunInitRejectsSQLCAndExampleTogether(t *testing.T) {
-	if err := runInit([]string{"--sqlc", "--example", "--out", t.TempDir()}); err == nil {
+	if err := runInit([]string{"--sqlc", "--example", "--path", t.TempDir()}); err == nil {
 		t.Fatal("expected --sqlc and --example conflict")
 	}
 }

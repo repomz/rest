@@ -7,7 +7,7 @@
 `rest`: CLI-приложение. Основной workflow:
 
 1. `rest init` создает редактируемую конфигурацию проекта.
-2. `rest generate` читает `rest_config/*.yaml` и при `auto_sqlc: enable` выполняет `sqlc generate -f <sqlc_path>`.
+2. `rest gen` читает `rest_config/*.yaml` и при `auto_sqlc: enable` выполняет `sqlc generate -f <sqlc_path>`.
 3. Генератор читает SQLC-конфиг по `sqlc_path`, SQL schema/query files и Go-файлы, созданные SQLC.
 4. Затем строит внутреннюю модель таблиц, query methods, параметров, endpoint-ов и включенных features.
 5. После этого рендерит Go-код приложения, дополнительные артефакты и завершает работу через `go mod tidy`.
@@ -57,7 +57,7 @@ Entrypoint исполняемого файла `rest`.
 | Команда | Где реализована |
 | --- | --- |
 | `rest init` | `runInit`, `parseInitOptions` |
-| `rest generate` | `runGenerate`, `parseConfigDir` |
+| `rest gen` | `runGen`, `parseGenPath` |
 | `rest update` | `runUpdate`, `parseUpdateOptions`, `internal/selfupdate` |
 | `rest version` | печатает `main.version` |
 
@@ -69,7 +69,7 @@ Entrypoint исполняемого файла `rest`.
 
 Режимы `--sqlc` и `--example` взаимоисключающие. `rest init --sqlc` удаляет `sqlc_example`, а `rest init --example` не создает пользовательскую директорию `sqlc`.
 
-`runGenerate` создает `appgen.Generator` с default feature registry и запускает генерацию. При включенном `auto_sqlc` генерация сначала обновляет SQLC output, а после рендера приложения выполняет `go mod tidy`.
+`runGen` создает `appgen.Generator` с default feature registry и запускает генерацию. При включенном `auto_sqlc` генерация сначала обновляет SQLC output, а после рендера приложения выполняет `go mod tidy`.
 
 `runUpdate` вызывает self-updater, который проверяет GitHub Releases и заменяет текущий binary.
 
@@ -506,7 +506,7 @@ sequenceDiagram
 
 ## Правила Перезаписи
 
-`rest generate` пересоздает generated application layers:
+`rest gen` пересоздает generated application layers:
 
 ```text
 internal/app/common

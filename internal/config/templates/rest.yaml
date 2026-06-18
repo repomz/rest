@@ -58,9 +58,9 @@ http:
 # Детальные настройки находятся в sqlc_rest.yaml, mongo_rest.yaml и auth_rest.yaml.
 # MongoDB и auth описаны как будущие контракты и пока не генерируются.
 sql: enable
-auto_sqlc: enable                    # При rest generate автоматически выполняет: sqlc generate -f <sqlc_path>.
+auto_sqlc: enable                    # При rest gen автоматически выполняет: sqlc generate -f <sqlc_path>.
                                       # Требуется установленный sqlc: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest.
-                                      # Если disable, выполните sqlc generate -f <sqlc_path> самостоятельно перед rest generate.
+                                      # Если disable, выполните sqlc generate -f <sqlc_path> самостоятельно перед rest gen.
 mongo: disable
 auth: disable
 

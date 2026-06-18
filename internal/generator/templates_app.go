@@ -221,14 +221,14 @@ REST_CONFIG ?= {{ defaultString .Features.Build.ConfigPath "rest_config" }}
 
 export
 
-.PHONY: build rest-generate run test clean{{ if .Features.Build.InitDB }} db{{ end }}{{ if .Features.Build.InitMigration }} migrate-status migrate-up migrate-down migrate-create{{ end }} install-lint lint
+.PHONY: build rest-gen run test clean{{ if .Features.Build.InitDB }} db{{ end }}{{ if .Features.Build.InitMigration }} migrate-status migrate-up migrate-down migrate-create{{ end }} install-lint lint
 
 build:
 	@mkdir -p $(BUILD_DIR)
 	go build -o $(BUILD_DIR)/$(APP_NAME) ./cmd
 
-rest-generate:
-	$(REST) generate -config $(REST_CONFIG)
+rest-gen:
+	$(REST) gen --path $(REST_CONFIG)
 
 run:
 	@mkdir -p $(BUILD_DIR) && \

@@ -180,7 +180,7 @@ The bundled example can be generated with:
 ```bash
 make build-rest
 ./bin/rest init --example
-./bin/rest generate
+./bin/rest gen
 go test ./...
 ```
 
@@ -189,7 +189,7 @@ For an existing SQLC project:
 ```bash
 ./bin/rest init
 # Configure rest_config/sqlc_rest.yaml
-./bin/rest generate
+./bin/rest gen
 ```
 
 The current example produces seven application routes:

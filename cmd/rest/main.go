@@ -30,8 +30,8 @@ func run(args []string) error {
 	switch args[0] {
 	case "init":
 		return runInit(args[1:])
-	case "generate":
-		return runGenerate(args[1:])
+	case "gen":
+		return runGen(args[1:])
 	case "update":
 		return runUpdate(args[1:])
 	case "version":
@@ -51,16 +51,16 @@ func runInit(args []string) error {
 		return fmt.Errorf("use either --sqlc or --example, not both")
 	}
 	if options.withSQLC {
-		if err := sqlcconfig.ValidateProject(options.out); err != nil {
+		if err := sqlcconfig.ValidateProject(options.path); err != nil {
 			return err
 		}
 	}
 	if options.withExample {
-		if err := sqlcconfig.ValidateExample(options.out); err != nil {
+		if err := sqlcconfig.ValidateExample(options.path); err != nil {
 			return err
 		}
 	}
-	configDir := filepath.Join(options.out, "rest_config")
+	configDir := filepath.Join(options.path, "rest_config")
 	if options.withExample {
 		if err := config.GenerateForExample(configDir); err != nil {
 			return err
@@ -75,15 +75,15 @@ func runInit(args []string) error {
 		}
 	}
 	if options.withSQLC {
-		if err := sqlcconfig.RemoveExample(options.out); err != nil {
+		if err := sqlcconfig.RemoveExample(options.path); err != nil {
 			return err
 		}
-		if err := sqlcconfig.GenerateProject(options.out); err != nil {
+		if err := sqlcconfig.GenerateProject(options.path); err != nil {
 			return err
 		}
 	}
 	if options.withExample {
-		if err := sqlcconfig.GenerateExample(options.out); err != nil {
+		if err := sqlcconfig.GenerateExample(options.path); err != nil {
 			return err
 		}
 	}
@@ -91,25 +91,25 @@ func runInit(args []string) error {
 }
 
 type initOptions struct {
-	out         string
+	path        string
 	withSQLC    bool
 	withExample bool
 }
 
 func parseInitOptions(args []string) (initOptions, error) {
-	options := initOptions{out: "."}
+	options := initOptions{path: "."}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--sqlc":
 			options.withSQLC = true
 		case "--example":
 			options.withExample = true
-		case "-out", "--out":
+		case "--path":
 			i++
 			if i >= len(args) {
-				return initOptions{}, fmt.Errorf("%s requires a path", args[i-1])
+				return initOptions{}, fmt.Errorf("--path requires a path")
 			}
-			options.out = args[i]
+			options.path = args[i]
 		default:
 			return initOptions{}, fmt.Errorf("unknown argument %q", args[i])
 		}
@@ -117,8 +117,8 @@ func parseInitOptions(args []string) (initOptions, error) {
 	return options, nil
 }
 
-func runGenerate(args []string) error {
-	configDir, err := parseConfigDir(args)
+func runGen(args []string) error {
+	configDir, err := parseGenPath(args)
 	if err != nil {
 		return err
 	}
@@ -150,14 +150,14 @@ func runUpdate(args []string) error {
 	return nil
 }
 
-func parseConfigDir(args []string) (string, error) {
+func parseGenPath(args []string) (string, error) {
 	configDir := "rest_config"
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "-config":
+		case "--path":
 			i++
 			if i >= len(args) {
-				return "", fmt.Errorf("-config requires a path")
+				return "", fmt.Errorf("--path requires a path")
 			}
 			configDir = args[i]
 		default:
@@ -192,7 +192,7 @@ func parseUpdateOptions(args []string) (updateOptions, error) {
 }
 
 func usageError() error {
-	return fmt.Errorf("usage: rest init [--sqlc|--example] [--out .] | rest generate [-config rest_config] | rest update [--version vX.Y.Z] [--force] | rest version")
+	return fmt.Errorf("usage: rest init [--sqlc|--example] [--path .] | rest gen [--path rest_config] | rest update [--version vX.Y.Z] [--force] | rest version")
 }
 
 func currentVersion() string {

@@ -175,7 +175,7 @@ Content-Type: application/json
 ```bash
 make build-rest
 ./bin/rest init --example
-./bin/rest generate
+./bin/rest gen
 go test ./...
 ```
 
@@ -184,7 +184,7 @@ go test ./...
 ```bash
 ./bin/rest init
 # Настраиваем rest_config/sqlc_rest.yaml
-./bin/rest generate
+./bin/rest gen
 ```
 
 При генерации автоматически запускаются `sqlc generate` и `go mod tidy`.

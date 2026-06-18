@@ -43,7 +43,7 @@
 - `assets/query-first-flow.svg` — схема концепции;
 - после публичного release стоит добавить GIF или короткое видео терминала:
   - `rest init --example`;
-  - `rest generate`;
+  - `rest gen`;
   - список routes;
   - Swagger UI.
 
