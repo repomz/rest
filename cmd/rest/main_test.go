@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/repomz/rest/internal/selfupdate"
 )
 
 func TestParseGenPath(t *testing.T) {
@@ -66,6 +70,41 @@ func TestParseUpdateOptions(t *testing.T) {
 	for _, args := range [][]string{{"--version"}, {"-config", "rest_config"}, {"--path", "."}, {"--sqlc"}} {
 		if _, err := parseUpdateOptions(args); err == nil {
 			t.Fatalf("expected error for arguments %v", args)
+		}
+	}
+}
+
+func TestParseChangelogOptions(t *testing.T) {
+	got, err := parseChangelogOptions([]string{"--version", "v0.2.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.version != "v0.2.0" {
+		t.Fatalf("version = %q", got.version)
+	}
+	for _, args := range [][]string{{"--version"}, {"--force"}, {"v0.2.0"}} {
+		if _, err := parseChangelogOptions(args); err == nil {
+			t.Fatalf("expected error for arguments %v", args)
+		}
+	}
+}
+
+func TestPrintUpdateResult(t *testing.T) {
+	var output bytes.Buffer
+	printUpdateResult(&output, selfupdate.Result{
+		PreviousVersion: "v0.1.0",
+		Version:         "v0.2.0",
+		ReleaseNotes:    "Features:\n\n - abc1234 [update] Add release notes.",
+	})
+	for _, want := range []string{
+		"Updating rest\n",
+		"v0.1.0 -> v0.2.0\n",
+		"Features:\n\n - abc1234 [update] Add release notes.\n",
+		"You can see the changelog with `rest changelog`.\n",
+		"Hooray! rest has been updated!\n",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output does not contain %q:\n%s", want, output.String())
 		}
 	}
 }

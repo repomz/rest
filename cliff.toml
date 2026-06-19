@@ -1,0 +1,49 @@
+[changelog]
+header = """
+# Changelog
+
+All notable changes to `rest` are generated from
+[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
+
+"""
+body = """
+{% if version %}\
+## [{{ version }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+
+### {{ group }}
+{% for commit in commits %}
+
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }} (`{{ commit.id | truncate(length=7, end="") }}`)
+{% endfor %}\
+{% endfor %}\n
+"""
+trim = true
+render_always = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+protect_breaking_commits = true
+tag_pattern = "v?[0-9]+\\.[0-9]+\\.[0-9]+"
+sort_commits = "oldest"
+commit_parsers = [
+  { message = "^.*!:", group = "BREAKING CHANGES" },
+  { body = ".*BREAKING CHANGE:.*", group = "BREAKING CHANGES" },
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Refactoring" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^test", group = "Tests" },
+  { message = "^build", group = "Build" },
+  { message = "^ci", group = "CI" },
+  { message = "^style", group = "Style" },
+  { message = "^revert", group = "Reverts" },
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^chore", group = "Maintenance" },
+]

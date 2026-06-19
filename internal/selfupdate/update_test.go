@@ -3,9 +3,13 @@ package selfupdate
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -75,6 +79,48 @@ func TestInstallBinaryReplacesExecutable(t *testing.T) {
 	if _, err := os.Stat(target + ".old"); !os.IsNotExist(err) {
 		t.Fatalf("expected backup cleanup, got %v", err)
 	}
+}
+
+func TestChangelogReturnsGitHubReleaseNotes(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if !strings.HasSuffix(req.URL.Path, "/releases/tags/v0.2.0") {
+				t.Fatalf("unexpected release path: %s", req.URL.Path)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(`{
+					"tag_name": "v0.2.0",
+					"body": "  Features:\n\n- Add changelog output.  ",
+					"html_url": "https://github.com/repomz/rest/releases/tag/v0.2.0"
+				}`)),
+				Header: make(http.Header),
+			}, nil
+		}),
+	}
+
+	result, err := Changelog(context.Background(), Options{
+		TargetVersion: "v0.2.0",
+		Client:        client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Version != "v0.2.0" {
+		t.Fatalf("version = %q", result.Version)
+	}
+	if result.ReleaseNotes != "Features:\n\n- Add changelog output." {
+		t.Fatalf("release notes = %q", result.ReleaseNotes)
+	}
+	if result.ReleaseURL != "https://github.com/repomz/rest/releases/tag/v0.2.0" {
+		t.Fatalf("release URL = %q", result.ReleaseURL)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
 }
 
 func writeTarGz(path, name, content string) error {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -34,6 +35,8 @@ func run(args []string) error {
 		return runGen(args[1:])
 	case "update":
 		return runUpdate(args[1:])
+	case "changelog":
+		return runChangelog(args[1:])
 	case "version":
 		fmt.Println(currentVersion())
 		return nil
@@ -146,7 +149,45 @@ func runUpdate(args []string) error {
 		fmt.Fprintf(os.Stdout, "rest is already up to date (%s)\n", result.Version)
 		return nil
 	}
-	fmt.Fprintf(os.Stdout, "updated rest from %s to %s\n", result.PreviousVersion, result.Version)
+	printUpdateResult(os.Stdout, result)
+	return nil
+}
+
+func printUpdateResult(w io.Writer, result selfupdate.Result) {
+	fmt.Fprintln(w, "Updating rest")
+	fmt.Fprintf(w, "%s -> %s\n\n", result.PreviousVersion, result.Version)
+	printReleaseNotes(w, result)
+	fmt.Fprintln(w, "You can see the changelog with `rest changelog`.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Hooray! rest has been updated!")
+}
+
+func printReleaseNotes(w io.Writer, result selfupdate.Result) {
+	if result.ReleaseNotes != "" {
+		fmt.Fprintln(w, result.ReleaseNotes)
+		fmt.Fprintln(w)
+	} else {
+		fmt.Fprintln(w, "No release notes were provided for this release.")
+		if result.ReleaseURL != "" {
+			fmt.Fprintln(w, result.ReleaseURL)
+		}
+		fmt.Fprintln(w)
+	}
+}
+
+func runChangelog(args []string) error {
+	options, err := parseChangelogOptions(args)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	result, err := selfupdate.Changelog(ctx, selfupdate.Options{TargetVersion: options.version})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stdout, "rest %s\n\n", result.Version)
+	printReleaseNotes(os.Stdout, result)
 	return nil
 }
 
@@ -172,6 +213,27 @@ type updateOptions struct {
 	force   bool
 }
 
+type changelogOptions struct {
+	version string
+}
+
+func parseChangelogOptions(args []string) (changelogOptions, error) {
+	var options changelogOptions
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--version":
+			i++
+			if i >= len(args) {
+				return changelogOptions{}, fmt.Errorf("--version requires a release tag")
+			}
+			options.version = args[i]
+		default:
+			return changelogOptions{}, fmt.Errorf("unknown argument %q", args[i])
+		}
+	}
+	return options, nil
+}
+
 func parseUpdateOptions(args []string) (updateOptions, error) {
 	var options updateOptions
 	for i := 0; i < len(args); i++ {
@@ -192,7 +254,7 @@ func parseUpdateOptions(args []string) (updateOptions, error) {
 }
 
 func usageError() error {
-	return fmt.Errorf("usage: rest init [--sqlc|--example] [--path .] | rest gen [--path rest_config] | rest update [--version vX.Y.Z] [--force] | rest version")
+	return fmt.Errorf("usage: rest init [--sqlc|--example] [--path .] | rest gen [--path rest_config] | rest update [--version vX.Y.Z] [--force] | rest changelog [--version vX.Y.Z] | rest version")
 }
 
 func currentVersion() string {

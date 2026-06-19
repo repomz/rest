@@ -35,6 +35,8 @@ type Options struct {
 type Result struct {
 	PreviousVersion string
 	Version         string
+	ReleaseNotes    string
+	ReleaseURL      string
 	AssetName       string
 	ExecutablePath  string
 	Updated         bool
@@ -42,6 +44,8 @@ type Result struct {
 
 type release struct {
 	TagName string  `json:"tag_name"`
+	Body    string  `json:"body"`
+	HTMLURL string  `json:"html_url"`
 	Assets  []asset `json:"assets"`
 }
 
@@ -62,7 +66,13 @@ func Update(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, fmt.Errorf("release has empty tag name")
 	}
 	if current == latest && !opts.Force {
-		return Result{PreviousVersion: opts.CurrentVersion, Version: rel.TagName, ExecutablePath: opts.ExecutablePath}, nil
+		return Result{
+			PreviousVersion: opts.CurrentVersion,
+			Version:         rel.TagName,
+			ReleaseNotes:    strings.TrimSpace(rel.Body),
+			ReleaseURL:      rel.HTMLURL,
+			ExecutablePath:  opts.ExecutablePath,
+		}, nil
 	}
 	selected, err := selectAsset(rel, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
@@ -87,9 +97,28 @@ func Update(ctx context.Context, opts Options) (Result, error) {
 	return Result{
 		PreviousVersion: opts.CurrentVersion,
 		Version:         rel.TagName,
+		ReleaseNotes:    strings.TrimSpace(rel.Body),
+		ReleaseURL:      rel.HTMLURL,
 		AssetName:       selected.Name,
 		ExecutablePath:  opts.ExecutablePath,
 		Updated:         true,
+	}, nil
+}
+
+// Changelog returns the release notes for a release without installing it.
+func Changelog(ctx context.Context, opts Options) (Result, error) {
+	opts = withDefaults(opts)
+	rel, err := fetchRelease(ctx, opts)
+	if err != nil {
+		return Result{}, err
+	}
+	if strings.TrimSpace(rel.TagName) == "" {
+		return Result{}, fmt.Errorf("release has empty tag name")
+	}
+	return Result{
+		Version:      rel.TagName,
+		ReleaseNotes: strings.TrimSpace(rel.Body),
+		ReleaseURL:   rel.HTMLURL,
 	}, nil
 }
 
