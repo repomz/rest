@@ -233,6 +233,7 @@ type sqlcConfig struct {
 
 type table struct {
 	Name       string
+	SQLName    string
 	Singular   string
 	Plural     string
 	GoName     string

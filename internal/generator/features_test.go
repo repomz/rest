@@ -82,6 +82,77 @@ func TestReadSchemaTablesIgnoresCommentedExamples(t *testing.T) {
 	}
 }
 
+func TestReadSchemaTablesSupportsCommonPostgresTypesAndSchemas(t *testing.T) {
+	dir := t.TempDir()
+	schema := `
+CREATE SCHEMA clinical;
+
+CREATE TABLE clinical.studies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title CHARACTER VARYING(255) NOT NULL,
+    metadata JSONB,
+    tags TEXT[] NOT NULL,
+    scores BIGINT[] NOT NULL,
+    rating NUMERIC(10, 2),
+    precision_score DOUBLE PRECISION,
+    ratio REAL,
+    attempts BIGINT,
+    active BOOLEAN NOT NULL DEFAULT false,
+    starts_at TIMESTAMP WITH TIME ZONE,
+    birth_date DATE,
+    CONSTRAINT studies_title_unique UNIQUE (title),
+    CHECK (rating >= 0)
+);
+`
+	if err := os.WriteFile(filepath.Join(dir, "schema.sql"), []byte(schema), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tables, err := readSchemaTables([]string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tables) != 1 {
+		t.Fatalf("expected one table, got %+v", tables)
+	}
+	table := tables[0]
+	if table.Name != "studies" || table.SQLName != "clinical.studies" || table.GoName != "Study" {
+		t.Fatalf("unexpected schema-qualified table parsing: %+v", table)
+	}
+	columns := map[string]column{}
+	for _, col := range table.Columns {
+		columns[col.Name] = col
+	}
+	checks := map[string]string{
+		"id":              "uuid.UUID",
+		"title":           "string",
+		"metadata":        "string",
+		"tags":            "[]string",
+		"scores":          "[]int64",
+		"rating":          "float64",
+		"precision_score": "float64",
+		"ratio":           "float32",
+		"attempts":        "int64",
+		"active":          "bool",
+		"starts_at":       "time.Time",
+		"birth_date":      "time.Time",
+	}
+	for name, goType := range checks {
+		if columns[name].GoType != goType {
+			t.Fatalf("column %s GoType = %q, want %q; columns=%+v", name, columns[name].GoType, goType, table.Columns)
+		}
+	}
+	if !columns["starts_at"].NeedsTime || !columns["id"].NeedsUUID {
+		t.Fatalf("expected time/uuid imports to be detected: %+v", table.Columns)
+	}
+	migration, err := buildInitialMigration([]string{dir}, tables)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(migration, "DROP TABLE IF EXISTS clinical.studies CASCADE;") {
+		t.Fatalf("schema-qualified migration down is missing:\n%s", migration)
+	}
+}
+
 func TestRemoveGeneratedMigrationPreservesUserMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "00001_rest_init.sql")
 	if err := os.WriteFile(path, []byte("-- handwritten\n"), 0o644); err != nil {

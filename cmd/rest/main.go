@@ -32,6 +32,8 @@ func run(args []string) error {
 		return runInit(args[1:])
 	case "gen":
 		return runGen(args[1:])
+	case "doctor":
+		return runDoctor(args[1:])
 	case "update":
 		return runUpdate(args[1:])
 	case "changelog":
@@ -239,7 +241,7 @@ func parseUpdateOptions(args []string) (updateOptions, error) {
 }
 
 func usageError() error {
-	return fmt.Errorf("usage: rest init [--example sql|mongo] | rest gen | rest update [--version vX.Y.Z] [--force] | rest changelog [--version vX.Y.Z] | rest version")
+	return fmt.Errorf("usage: rest init [--example sql|mongo] | rest gen | rest doctor | rest update [--version vX.Y.Z] [--force] | rest changelog [--version vX.Y.Z] | rest version")
 }
 
 func currentVersion() string {

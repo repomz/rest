@@ -25,6 +25,7 @@ func TestE2EInitSQLCGenerateAndTestGeneratedProject(t *testing.T) {
 	if err := run([]string{"gen"}); err != nil {
 		t.Fatal(err)
 	}
+	assertDoctorHealthy(t)
 	for _, path := range []string{
 		"cmd/main.go",
 		"internal/app/domain/item.go",
@@ -52,6 +53,7 @@ func TestE2EInitMongoExampleGenerateAndTestGeneratedProject(t *testing.T) {
 	if err := run([]string{"gen"}); err != nil {
 		t.Fatal(err)
 	}
+	assertDoctorHealthy(t)
 	for _, path := range []string{
 		"cmd/main.go",
 		"internal/app/domain/document.go",
@@ -251,4 +253,15 @@ func runGeneratedGoTest(t *testing.T, projectDir string) {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("generated project go test failed: %v\n%s", err, output.String())
 	}
+}
+
+func assertDoctorHealthy(t *testing.T) {
+	t.Helper()
+	report := runDoctorChecks("rest_config")
+	if report.Errors() == 0 {
+		return
+	}
+	var output bytes.Buffer
+	report.Print(&output)
+	t.Fatalf("expected generated project to pass rest doctor without errors:\n%s", output.String())
 }

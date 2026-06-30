@@ -267,9 +267,13 @@ func (h HttpServer) authenticateRequest(w http.ResponseWriter, r *http.Request) 
 {{- else }}
 	token := r.Header.Get(AuthorizationHeader)
 	token = strings.TrimSpace(strings.TrimPrefix(token, BearerPrefix))
+	if token == "" {
+		server.Unauthorised("missing-token", nil, w, r)
+		return nil, nil, false
+	}
 	user, err := h.tokenService.GetUser(token)
 	if err != nil {
-		server.InternalError("validate-token", err, w, r)
+		server.Unauthorised("invalid-token", err, w, r)
 		return nil, nil, false
 	}
 	return user, rolesFromUser(user, "{{ .Features.Auth.RolesGoName }}"), true

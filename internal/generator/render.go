@@ -512,6 +512,14 @@ func handlerParamRead(param endpointParam) string {
 		fmt.Fprintf(&b, "value, err := uuid.Parse(%s)\nif err != nil {\nserver.BadRequest(\"invalid-%s\", err, w, r)\nreturn\n}\nparams.%s = value\n", rawName, param.JSONName, param.GoName)
 	case "int", "int32", "null_int", "null_int32":
 		fmt.Fprintf(&b, "value, err := strconv.Atoi(%s)\nif err != nil {\nserver.BadRequest(\"invalid-%s\", err, w, r)\nreturn\n}\nparams.%s = int32(value)\n", rawName, param.JSONName, param.GoName)
+	case "int64", "null_int64":
+		fmt.Fprintf(&b, "value, err := strconv.ParseInt(%s, 10, 64)\nif err != nil {\nserver.BadRequest(\"invalid-%s\", err, w, r)\nreturn\n}\nparams.%s = value\n", rawName, param.JSONName, param.GoName)
+	case "float", "float64", "double", "null_float", "null_float64":
+		fmt.Fprintf(&b, "value, err := strconv.ParseFloat(%s, 64)\nif err != nil {\nserver.BadRequest(\"invalid-%s\", err, w, r)\nreturn\n}\nparams.%s = value\n", rawName, param.JSONName, param.GoName)
+	case "float32":
+		fmt.Fprintf(&b, "value, err := strconv.ParseFloat(%s, 32)\nif err != nil {\nserver.BadRequest(\"invalid-%s\", err, w, r)\nreturn\n}\nparams.%s = float32(value)\n", rawName, param.JSONName, param.GoName)
+	case "bool", "boolean":
+		fmt.Fprintf(&b, "value, err := strconv.ParseBool(%s)\nif err != nil {\nserver.BadRequest(\"invalid-%s\", err, w, r)\nreturn\n}\nparams.%s = value\n", rawName, param.JSONName, param.GoName)
 	case "time", "null_time":
 		fmt.Fprintf(&b, "value, err := time.Parse(\"2006-01-02\", %s)\nif err != nil {\nserver.BadRequest(\"invalid-%s\", err, w, r)\nreturn\n}\nparams.%s = value\n", rawName, param.JSONName, param.GoName)
 	default:
@@ -592,13 +600,21 @@ func testURL(ep endpoint) string {
 }
 
 func sampleGoValue(goType, name string) string {
+	if strings.HasPrefix(goType, "[]") {
+		inner := strings.TrimPrefix(goType, "[]")
+		return "[]" + inner + "{" + sampleGoValue(inner, name) + "}"
+	}
 	switch goType {
 	case "uuid.UUID":
 		return "uuid.MustParse(\"00000000-0000-0000-0000-000000000001\")"
 	case "time.Time":
 		return "time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)"
-	case "int32":
+	case "int", "int16", "int32", "int64":
 		return "1"
+	case "float32":
+		return "1.5"
+	case "float64":
+		return "1.5"
 	case "bool":
 		return "false"
 	default:
@@ -607,13 +623,19 @@ func sampleGoValue(goType, name string) string {
 }
 
 func sampleJSONValue(goType, name string) string {
+	if strings.HasPrefix(goType, "[]") {
+		inner := strings.TrimPrefix(goType, "[]")
+		return "[" + sampleJSONValue(inner, name) + "]"
+	}
 	switch goType {
 	case "uuid.UUID":
 		return `"00000000-0000-0000-0000-000000000001"`
 	case "time.Time":
 		return `"2026-01-02T00:00:00Z"`
-	case "int32":
+	case "int", "int16", "int32", "int64":
 		return "1"
+	case "float32", "float64":
+		return "1.5"
 	case "bool":
 		return "false"
 	default:
@@ -629,6 +651,12 @@ func sampleRawValue(paramType, name string) string {
 		return "2026-01-02"
 	case "int", "int32", "null_int", "null_int32":
 		return "1"
+	case "int64", "null_int64":
+		return "1"
+	case "float", "float32", "float64", "double", "null_float", "null_float64":
+		return "1.5"
+	case "bool", "boolean":
+		return "true"
 	default:
 		return "test_" + name
 	}

@@ -3,7 +3,7 @@ REST_BINARY ?= $(BUILD_DIR)/rest
 GO ?= go
 VERSION ?=
 
-.PHONY: build-rest test check benchmark clean setup hooks changelog release publish-release
+.PHONY: build-rest test generated-examples runtime-e2e check benchmark clean setup hooks changelog release publish-release
 
 build-rest:
 	@mkdir -p $(BUILD_DIR)
@@ -11,6 +11,12 @@ build-rest:
 
 test:
 	$(GO) test ./...
+
+generated-examples:
+	$(GO) test ./cmd/rest -run 'TestE2E'
+
+runtime-e2e:
+	REST_RUNTIME_E2E=1 $(GO) test ./cmd/rest -run 'TestRuntimeE2E' -count=1
 
 check:
 	@test -z "$$(gofmt -l .)" || (gofmt -l . && exit 1)

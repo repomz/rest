@@ -117,13 +117,14 @@ func readSchemaTables(schemaDirs []string) ([]table, error) {
 		sql.WriteString(stripSQLLineComments(string(b)))
 	}
 
-	re := regexp.MustCompile(`(?is)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?("?[\w]+"?)\s*\((.*?)\);`)
+	re := regexp.MustCompile(`(?is)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?((?:"?[\w]+"?\.)?"?[\w]+"?)\s*\((.*?)\);`)
 	matches := re.FindAllStringSubmatch(sql.String(), -1)
 	tables := make([]table, 0, len(matches))
 	for _, match := range matches {
-		name := cleanIdent(match[1])
+		name := cleanTableName(match[1])
 		tbl := table{
 			Name:      name,
+			SQLName:   cleanSQLName(match[1]),
 			Singular:  singular(name),
 			Plural:    name,
 			RouteBase: "/" + name,
@@ -179,7 +180,11 @@ func buildInitialMigration(schemaDirs []string, tables []table) (string, error) 
 	}
 	migration.WriteString("-- +goose StatementEnd\n\n-- +goose Down\n-- +goose StatementBegin\n")
 	for i := len(tables) - 1; i >= 0; i-- {
-		fmt.Fprintf(&migration, "DROP TABLE IF EXISTS %s CASCADE;\n", tables[i].Name)
+		name := tables[i].SQLName
+		if name == "" {
+			name = tables[i].Name
+		}
+		fmt.Fprintf(&migration, "DROP TABLE IF EXISTS %s CASCADE;\n", name)
 	}
 	migration.WriteString("-- +goose StatementEnd\n")
 	return migration.String(), nil
@@ -201,7 +206,7 @@ func parseColumns(body string) []column {
 		if upperName == "PRIMARY" || upperName == "CONSTRAINT" || upperName == "FOREIGN" || upperName == "UNIQUE" || upperName == "CHECK" {
 			continue
 		}
-		sqlType := strings.ToUpper(strings.Trim(fields[1], ","))
+		sqlType := columnSQLType(fields[1:])
 		nullable := !strings.Contains(strings.ToUpper(line), "NOT NULL") && !strings.Contains(strings.ToUpper(line), "PRIMARY KEY")
 		col := column{
 			Name:     name,
@@ -218,15 +223,60 @@ func parseColumns(body string) []column {
 }
 
 func mapSQLType(sqlType string, col column) (goType, dbValue string, needsSQL, needsTime, needsUUID bool, validCheck string) {
+	sqlType = normalizeSQLType(sqlType)
+	if base, ok := sqlArrayBase(sqlType); ok {
+		baseGo, _, _, baseNeedsTime, baseNeedsUUID, _ := mapSQLType(base, column{Name: col.Name, GoName: col.GoName, JSONName: col.JSONName})
+		goType = "[]" + baseGo
+		dbValue = col.GoName
+		needsTime = baseNeedsTime
+		needsUUID = baseNeedsUUID
+		validCheck = "len(item." + col.GoName + ") > 0"
+		if !col.Nullable {
+			dbValue = "item." + col.GoName
+		}
+		return
+	}
 	switch {
 	case strings.Contains(sqlType, "UUID"):
 		goType, dbValue, needsUUID = "uuid.UUID", col.GoName, true
 		validCheck = "item." + col.GoName + " != uuid.Nil"
+	case strings.Contains(sqlType, "BIGINT"):
+		goType = "int64"
+		validCheck = "item." + col.GoName + " != 0"
+		if col.Nullable {
+			dbValue, needsSQL = fmt.Sprintf("sql.NullInt64{Int64: item.%s, Valid: item.%s != 0}", col.GoName, col.GoName), true
+		} else {
+			dbValue = col.GoName
+		}
+	case strings.Contains(sqlType, "SMALLINT") || strings.Contains(sqlType, "INT2"):
+		goType = "int32"
+		validCheck = "item." + col.GoName + " != 0"
+		if col.Nullable {
+			dbValue, needsSQL = fmt.Sprintf("sql.NullInt32{Int32: item.%s, Valid: item.%s != 0}", col.GoName, col.GoName), true
+		} else {
+			dbValue = col.GoName
+		}
 	case strings.Contains(sqlType, "INT"):
 		goType = "int32"
 		validCheck = "item." + col.GoName + " != 0"
 		if col.Nullable {
 			dbValue, needsSQL = fmt.Sprintf("sql.NullInt32{Int32: item.%s, Valid: item.%s != 0}", col.GoName, col.GoName), true
+		} else {
+			dbValue = col.GoName
+		}
+	case strings.Contains(sqlType, "NUMERIC") || strings.Contains(sqlType, "DECIMAL") || strings.Contains(sqlType, "DOUBLE PRECISION") || strings.Contains(sqlType, "FLOAT8"):
+		goType = "float64"
+		validCheck = "item." + col.GoName + " != 0"
+		if col.Nullable {
+			dbValue, needsSQL = fmt.Sprintf("sql.NullFloat64{Float64: item.%s, Valid: item.%s != 0}", col.GoName, col.GoName), true
+		} else {
+			dbValue = col.GoName
+		}
+	case strings.Contains(sqlType, "REAL") || strings.Contains(sqlType, "FLOAT4"):
+		goType = "float32"
+		validCheck = "item." + col.GoName + " != 0"
+		if col.Nullable {
+			dbValue, needsSQL = fmt.Sprintf("sql.NullFloat64{Float64: float64(item.%s), Valid: item.%s != 0}", col.GoName, col.GoName), true
 		} else {
 			dbValue = col.GoName
 		}
@@ -254,6 +304,70 @@ func mapSQLType(sqlType string, col column) (goType, dbValue string, needsSQL, n
 		dbValue = "item." + col.GoName
 	}
 	return
+}
+
+func columnSQLType(fields []string) string {
+	var parts []string
+	for _, field := range fields {
+		trimmed := strings.Trim(field, ",")
+		if trimmed == "" {
+			continue
+		}
+		upper := strings.ToUpper(trimmed)
+		if isColumnConstraintKeyword(upper) {
+			break
+		}
+		parts = append(parts, trimmed)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.ToUpper(strings.Join(parts, " "))
+}
+
+func isColumnConstraintKeyword(token string) bool {
+	token = strings.Trim(token, ",")
+	switch token {
+	case "PRIMARY", "REFERENCES", "CONSTRAINT", "NOT", "NULL", "DEFAULT", "UNIQUE", "CHECK", "COLLATE", "GENERATED", "IDENTITY":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeSQLType(sqlType string) string {
+	sqlType = strings.ToUpper(strings.TrimSpace(sqlType))
+	if idx := strings.Index(sqlType, "("); idx >= 0 {
+		if end := strings.LastIndex(sqlType, ")"); end > idx {
+			sqlType = sqlType[:idx] + strings.TrimSpace(sqlType[end+1:])
+		}
+	}
+	sqlType = strings.Join(strings.Fields(sqlType), " ")
+	return sqlType
+}
+
+func sqlArrayBase(sqlType string) (string, bool) {
+	sqlType = strings.TrimSpace(sqlType)
+	if strings.HasSuffix(sqlType, "[]") {
+		return strings.TrimSpace(strings.TrimSuffix(sqlType, "[]")), true
+	}
+	if strings.HasSuffix(sqlType, " ARRAY") {
+		return strings.TrimSpace(strings.TrimSuffix(sqlType, " ARRAY")), true
+	}
+	return "", false
+}
+
+func cleanTableName(s string) string {
+	parts := strings.Split(cleanSQLName(s), ".")
+	return parts[len(parts)-1]
+}
+
+func cleanSQLName(s string) string {
+	parts := strings.Split(strings.TrimSpace(s), ".")
+	for i := range parts {
+		parts[i] = cleanIdent(parts[i])
+	}
+	return strings.Join(parts, ".")
 }
 
 func isReadOnlyColumn(name string) bool {

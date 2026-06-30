@@ -109,12 +109,24 @@ func mapEndpointParam(param *endpointParam) (goType, dbExpr string, needsTime, n
 		return "uuid.UUID", name, false, true, false, name + " != uuid.Nil"
 	case "int", "int32":
 		return "int32", name, false, false, true, name + " != 0"
+	case "int64":
+		return "int64", name, false, false, true, name + " != 0"
+	case "float", "float32":
+		return "float32", name, false, false, true, name + " != 0"
+	case "float64", "double":
+		return "float64", name, false, false, true, name + " != 0"
+	case "bool", "boolean":
+		return "bool", name, false, false, true, name
 	case "time":
 		return "time.Time", name, true, false, false, "!" + name + ".IsZero()"
 	case "null_time":
 		return "time.Time", fmt.Sprintf("sql.NullTime{Time: %s, Valid: !%s.IsZero()}", name, name), true, false, false, "!" + name + ".IsZero()"
 	case "null_int", "null_int32":
 		return "int32", fmt.Sprintf("sql.NullInt32{Int32: %s, Valid: %s != 0}", name, name), false, false, true, name + " != 0"
+	case "null_int64":
+		return "int64", fmt.Sprintf("sql.NullInt64{Int64: %s, Valid: %s != 0}", name, name), false, false, true, name + " != 0"
+	case "null_float", "null_float64":
+		return "float64", fmt.Sprintf("sql.NullFloat64{Float64: %s, Valid: %s != 0}", name, name), false, false, true, name + " != 0"
 	case "null_string":
 		return "string", fmt.Sprintf("sql.NullString{String: %s, Valid: %s != \"\"}", name, name), false, false, false, name + ` != ""`
 	default:
@@ -413,12 +425,24 @@ func endpointTypeFromGo(goType string) string {
 		return "uuid"
 	case "time.Time":
 		return "time"
-	case "int", "int32", "int64":
+	case "int", "int32":
 		return "int32"
+	case "int64":
+		return "int64"
+	case "float32":
+		return "float32"
+	case "float64":
+		return "float64"
+	case "bool":
+		return "bool"
 	case "sql.NullString":
 		return "null_string"
-	case "sql.NullInt32", "sql.NullInt64":
+	case "sql.NullInt32":
 		return "null_int32"
+	case "sql.NullInt64":
+		return "null_int64"
+	case "sql.NullFloat64":
+		return "null_float64"
 	case "sql.NullTime":
 		return "null_time"
 	default:

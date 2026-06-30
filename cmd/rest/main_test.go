@@ -220,6 +220,42 @@ func TestRunGenRejectsRemovedPathArgument(t *testing.T) {
 	}
 }
 
+func TestRunDoctorRejectsArguments(t *testing.T) {
+	if err := runDoctor([]string{"--json"}); err == nil {
+		t.Fatal("expected doctor to reject arguments")
+	}
+}
+
+func TestRunDoctorReportsMissingConfig(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDir(t, root)
+	report := runDoctorChecks("rest_config")
+	if report.Errors() == 0 {
+		t.Fatalf("expected missing rest_config to be an error: %+v", report.Checks)
+	}
+	var output bytes.Buffer
+	report.Print(&output)
+	for _, want := range []string{"REST Doctor", "rest_config directory is missing", "Summary:"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("doctor output does not contain %q:\n%s", want, output.String())
+		}
+	}
+}
+
+func TestRunDoctorAfterMongoExampleInit(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDir(t, root)
+	if err := runInit([]string{"--example", "mongo"}); err != nil {
+		t.Fatal(err)
+	}
+	report := runDoctorChecks("rest_config")
+	if report.Errors() != 0 {
+		var output bytes.Buffer
+		report.Print(&output)
+		t.Fatalf("expected mongo example init to be doctor-valid before generation:\n%s", output.String())
+	}
+}
+
 func withWorkingDir(t *testing.T, dir string) {
 	t.Helper()
 	previous, err := os.Getwd()
