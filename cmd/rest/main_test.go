@@ -32,11 +32,11 @@ func TestParseInitOptions(t *testing.T) {
 }
 
 func TestParseUpdateOptions(t *testing.T) {
-	got, err := parseUpdateOptions([]string{"--version", "v0.2.0", "--force"})
+	got, err := parseUpdateOptions([]string{"--version", "v0.2.0", "--force", "--check"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.version != "v0.2.0" || !got.force {
+	if got.version != "v0.2.0" || !got.force || !got.check {
 		t.Fatalf("unexpected update options: %+v", got)
 	}
 	for _, args := range [][]string{{"--version"}, {"-config", "rest_config"}, {"--path", "."}, {"--sqlc"}} {
@@ -64,13 +64,17 @@ func TestParseChangelogOptions(t *testing.T) {
 func TestPrintUpdateResult(t *testing.T) {
 	var output bytes.Buffer
 	printUpdateResult(&output, selfupdate.Result{
-		PreviousVersion: "v0.1.0",
-		Version:         "v0.2.0",
-		ReleaseNotes:    "Features:\n\n - abc1234 [update] Add release notes.",
+		PreviousVersion:   "v0.1.0",
+		Version:           "v0.2.0",
+		ReleaseNotes:      "Features:\n\n - abc1234 [update] Add release notes.",
+		Checksum:          strings.Repeat("a", 64),
+		SignatureVerified: true,
 	})
 	for _, want := range []string{
 		"Updating rest\n",
 		"v0.1.0 -> v0.2.0\n",
+		"Verified cosign signature for checksums.txt\n",
+		"Verified SHA-256: " + strings.Repeat("a", 64) + "\n",
 		"Features:\n\n - abc1234 [update] Add release notes.\n",
 		"You can see the changelog with `rest changelog`.\n",
 		"Hooray! rest has been updated!\n",
@@ -78,6 +82,23 @@ func TestPrintUpdateResult(t *testing.T) {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("output does not contain %q:\n%s", want, output.String())
 		}
+	}
+}
+
+func TestPrintUpdateCheckResult(t *testing.T) {
+	var output bytes.Buffer
+	printUpdateCheckResult(&output, selfupdate.Result{
+		PreviousVersion: "v0.1.0",
+		Version:         "v0.2.0",
+		Available:       true,
+	})
+	if !strings.Contains(output.String(), "New rest version available: v0.2.0") {
+		t.Fatalf("unexpected check output:\n%s", output.String())
+	}
+	output.Reset()
+	printUpdateCheckResult(&output, selfupdate.Result{Version: "v0.2.0"})
+	if !strings.Contains(output.String(), "rest is already up to date (v0.2.0)") {
+		t.Fatalf("unexpected check output:\n%s", output.String())
 	}
 }
 

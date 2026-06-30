@@ -140,6 +140,19 @@ func runUpdate(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	if options.check {
+		result, err := selfupdate.Check(ctx, selfupdate.Options{
+			CurrentVersion: currentVersion(),
+			TargetVersion:  options.version,
+			Force:          options.force,
+			Stdout:         os.Stdout,
+		})
+		if err != nil {
+			return err
+		}
+		printUpdateCheckResult(os.Stdout, result)
+		return nil
+	}
 	result, err := selfupdate.Update(ctx, selfupdate.Options{
 		CurrentVersion: currentVersion(),
 		TargetVersion:  options.version,
@@ -157,9 +170,31 @@ func runUpdate(args []string) error {
 	return nil
 }
 
+func printUpdateCheckResult(w io.Writer, result selfupdate.Result) {
+	if result.Available {
+		fmt.Fprintf(w, "New rest version available: %s", result.Version)
+		if result.PreviousVersion != "" {
+			fmt.Fprintf(w, " (current: %s)", result.PreviousVersion)
+		}
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Run `rest update` to install it.")
+		return
+	}
+	fmt.Fprintf(w, "rest is already up to date (%s)\n", result.Version)
+}
+
 func printUpdateResult(w io.Writer, result selfupdate.Result) {
 	fmt.Fprintln(w, "Updating rest")
 	fmt.Fprintf(w, "%s -> %s\n\n", result.PreviousVersion, result.Version)
+	if result.SignatureVerified {
+		fmt.Fprintln(w, "Verified cosign signature for checksums.txt")
+	}
+	if result.Checksum != "" {
+		fmt.Fprintf(w, "Verified SHA-256: %s\n", result.Checksum)
+	}
+	if result.SignatureVerified || result.Checksum != "" {
+		fmt.Fprintln(w)
+	}
 	printReleaseNotes(w, result)
 	fmt.Fprintln(w, "You can see the changelog with `rest changelog`.")
 	fmt.Fprintln(w)
@@ -198,6 +233,7 @@ func runChangelog(args []string) error {
 type updateOptions struct {
 	version string
 	force   bool
+	check   bool
 }
 
 type changelogOptions struct {
@@ -233,6 +269,8 @@ func parseUpdateOptions(args []string) (updateOptions, error) {
 			options.version = args[i]
 		case "--force":
 			options.force = true
+		case "--check":
+			options.check = true
 		default:
 			return updateOptions{}, fmt.Errorf("unknown argument %q", args[i])
 		}
@@ -241,7 +279,7 @@ func parseUpdateOptions(args []string) (updateOptions, error) {
 }
 
 func usageError() error {
-	return fmt.Errorf("usage: rest init [--example sql|mongo] | rest gen | rest doctor | rest update [--version vX.Y.Z] [--force] | rest changelog [--version vX.Y.Z] | rest version")
+	return fmt.Errorf("usage: rest init [--example sql|mongo] | rest gen | rest doctor | rest update [--check] [--version vX.Y.Z] [--force] | rest changelog [--version vX.Y.Z] | rest version")
 }
 
 func currentVersion() string {

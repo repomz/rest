@@ -5,21 +5,31 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
 )
 
 const (
-	DefaultRepoOwner = "repomz"
-	DefaultRepoName  = "rest"
+	DefaultRepoOwner       = "repomz"
+	DefaultRepoName        = "rest"
+	defaultOIDCIssuer      = "https://token.actions.githubusercontent.com"
+	checksumsAssetName     = "checksums.txt"
+	checksumsSignatureName = "checksums.txt.sig"
+	checksumsCertName      = "checksums.txt.pem"
 )
+
+var runCosignVerifyBlob = defaultRunCosignVerifyBlob
 
 type Options struct {
 	CurrentVersion string
@@ -33,13 +43,16 @@ type Options struct {
 }
 
 type Result struct {
-	PreviousVersion string
-	Version         string
-	ReleaseNotes    string
-	ReleaseURL      string
-	AssetName       string
-	ExecutablePath  string
-	Updated         bool
+	PreviousVersion   string
+	Version           string
+	ReleaseNotes      string
+	ReleaseURL        string
+	AssetName         string
+	ExecutablePath    string
+	Available         bool
+	Updated           bool
+	Checksum          string
+	SignatureVerified bool
 }
 
 type release struct {
@@ -78,6 +91,18 @@ func Update(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	checksums, err := selectChecksumsAsset(rel)
+	if err != nil {
+		return Result{}, err
+	}
+	signature, err := selectNamedAsset(rel, checksumsSignatureName)
+	if err != nil {
+		return Result{}, err
+	}
+	certificate, err := selectNamedAsset(rel, checksumsCertName)
+	if err != nil {
+		return Result{}, err
+	}
 	tmpDir, err := os.MkdirTemp("", "rest-update-*")
 	if err != nil {
 		return Result{}, err
@@ -85,6 +110,25 @@ func Update(ctx context.Context, opts Options) (Result, error) {
 	defer os.RemoveAll(tmpDir)
 	archivePath := filepath.Join(tmpDir, selected.Name)
 	if err := download(ctx, opts.Client, selected.URL, archivePath); err != nil {
+		return Result{}, err
+	}
+	checksumsPath := filepath.Join(tmpDir, checksums.Name)
+	if err := download(ctx, opts.Client, checksums.URL, checksumsPath); err != nil {
+		return Result{}, err
+	}
+	signaturePath := filepath.Join(tmpDir, signature.Name)
+	if err := download(ctx, opts.Client, signature.URL, signaturePath); err != nil {
+		return Result{}, err
+	}
+	certificatePath := filepath.Join(tmpDir, certificate.Name)
+	if err := download(ctx, opts.Client, certificate.URL, certificatePath); err != nil {
+		return Result{}, err
+	}
+	if err := verifyChecksumsSignature(ctx, checksumsPath, signaturePath, certificatePath, opts); err != nil {
+		return Result{}, err
+	}
+	checksum, err := verifyArchiveChecksum(archivePath, checksumsPath)
+	if err != nil {
 		return Result{}, err
 	}
 	binaryPath, err := extractBinary(archivePath, tmpDir)
@@ -95,13 +139,42 @@ func Update(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, err
 	}
 	return Result{
+		PreviousVersion:   opts.CurrentVersion,
+		Version:           rel.TagName,
+		ReleaseNotes:      strings.TrimSpace(rel.Body),
+		ReleaseURL:        rel.HTMLURL,
+		AssetName:         selected.Name,
+		ExecutablePath:    opts.ExecutablePath,
+		Available:         true,
+		Updated:           true,
+		Checksum:          checksum,
+		SignatureVerified: true,
+	}, nil
+}
+
+// Check returns whether a newer release is available without downloading or installing assets.
+func Check(ctx context.Context, opts Options) (Result, error) {
+	opts = withDefaults(opts)
+	rel, err := fetchRelease(ctx, opts)
+	if err != nil {
+		return Result{}, err
+	}
+	current := normalizeVersion(opts.CurrentVersion)
+	latest := normalizeVersion(rel.TagName)
+	if latest == "" {
+		return Result{}, fmt.Errorf("release has empty tag name")
+	}
+	available := current != latest
+	if opts.Force {
+		available = true
+	}
+	return Result{
 		PreviousVersion: opts.CurrentVersion,
 		Version:         rel.TagName,
 		ReleaseNotes:    strings.TrimSpace(rel.Body),
 		ReleaseURL:      rel.HTMLURL,
-		AssetName:       selected.Name,
 		ExecutablePath:  opts.ExecutablePath,
-		Updated:         true,
+		Available:       available,
 	}, nil
 }
 
@@ -184,6 +257,19 @@ func selectAsset(rel release, goos, goarch string) (asset, error) {
 	return asset{}, fmt.Errorf("release %s has no asset for %s/%s", rel.TagName, goos, goarch)
 }
 
+func selectChecksumsAsset(rel release) (asset, error) {
+	return selectNamedAsset(rel, checksumsAssetName)
+}
+
+func selectNamedAsset(rel release, name string) (asset, error) {
+	for _, candidate := range rel.Assets {
+		if candidate.Name == name && candidate.URL != "" {
+			return candidate, nil
+		}
+	}
+	return asset{}, fmt.Errorf("release %s has no %s asset", rel.TagName, name)
+}
+
 func download(ctx context.Context, client *http.Client, url, target string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -205,6 +291,97 @@ func download(ctx context.Context, client *http.Client, url, target string) erro
 	defer file.Close()
 	_, err = io.Copy(file, resp.Body)
 	return err
+}
+
+func verifyChecksumsSignature(ctx context.Context, checksumsPath, signaturePath, certificatePath string, opts Options) error {
+	identityRegexp := releaseCertificateIdentityRegexp(opts.RepoOwner, opts.RepoName)
+	if err := runCosignVerifyBlob(ctx, checksumsPath, signaturePath, certificatePath, identityRegexp, defaultOIDCIssuer); err != nil {
+		return fmt.Errorf("cosign verification failed for checksums.txt: %w", err)
+	}
+	return nil
+}
+
+func defaultRunCosignVerifyBlob(ctx context.Context, checksumsPath, signaturePath, certificatePath, identityRegexp, oidcIssuer string) error {
+	cosignPath, err := exec.LookPath("cosign")
+	if err != nil {
+		return fmt.Errorf("cosign is required for strict release verification; install cosign and retry")
+	}
+	cmd := exec.CommandContext(ctx, cosignPath,
+		"verify-blob",
+		"--certificate", certificatePath,
+		"--signature", signaturePath,
+		"--certificate-identity-regexp", identityRegexp,
+		"--certificate-oidc-issuer", oidcIssuer,
+		checksumsPath,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = err.Error()
+		}
+		return fmt.Errorf("%s", message)
+	}
+	return nil
+}
+
+func releaseCertificateIdentityRegexp(owner, repo string) string {
+	identity := fmt.Sprintf("https://github.com/%s/%s/.github/workflows/release.yml@refs/tags/v", owner, repo)
+	return "^" + regexp.QuoteMeta(identity) + ".*$"
+}
+
+func verifyArchiveChecksum(archivePath, checksumsPath string) (string, error) {
+	expected, err := expectedChecksum(archivePath, checksumsPath)
+	if err != nil {
+		return "", err
+	}
+	actual, err := fileSHA256(archivePath)
+	if err != nil {
+		return "", err
+	}
+	if !strings.EqualFold(actual, expected) {
+		return "", fmt.Errorf("checksum mismatch for %s: expected %s, got %s", filepath.Base(archivePath), expected, actual)
+	}
+	return actual, nil
+}
+
+func expectedChecksum(archivePath, checksumsPath string) (string, error) {
+	content, err := os.ReadFile(checksumsPath)
+	if err != nil {
+		return "", err
+	}
+	archiveName := filepath.Base(archivePath)
+	for _, line := range strings.Split(string(content), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		name := strings.TrimPrefix(fields[len(fields)-1], "*")
+		if filepath.Base(name) == archiveName {
+			checksum := strings.ToLower(fields[0])
+			if len(checksum) != sha256.Size*2 {
+				return "", fmt.Errorf("invalid SHA-256 checksum for %s", archiveName)
+			}
+			if _, err := hex.DecodeString(checksum); err != nil {
+				return "", fmt.Errorf("invalid SHA-256 checksum for %s", archiveName)
+			}
+			return checksum, nil
+		}
+	}
+	return "", fmt.Errorf("checksums.txt has no SHA-256 entry for %s", archiveName)
+}
+
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func extractBinary(archivePath, dir string) (string, error) {
