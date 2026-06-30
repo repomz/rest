@@ -27,6 +27,13 @@ func Load(dir string) (Bundle, error) {
 		}
 		bundle.SQL = &sql
 	}
+	if rest.Mongo.Bool() {
+		var mongo Mongo
+		if err := readYAML(filepath.Join(dir, "mongo_rest.yaml"), &mongo); err != nil {
+			return Bundle{}, err
+		}
+		bundle.Mongo = &mongo
+	}
 	if rest.Auth.Bool() {
 		var auth Auth
 		authPath := filepath.Join(dir, "auth_rest.yaml")

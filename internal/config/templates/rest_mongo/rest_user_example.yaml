@@ -1,0 +1,193 @@
+# ==============================================================================
+# REST: MONGODB USER EXAMPLE
+# ==============================================================================
+# Справочный пример. Для своего контракта создайте отдельный файл,
+# например item.yaml, и опишите в нём одну сущность с её методами.
+version: "0.1.0"
+
+# ------------------------------------------------------------------------------
+# MODELS AND FIELDS
+# ------------------------------------------------------------------------------
+# Типы полей: string, bool, int32, int64, float64, time, object_id, decimal128,
+# embedded-модель и массив в форме "[]Type".
+models:
+  - name: User
+    collection: users
+    timestamps: true
+    fields:
+      - name: id
+        type: object_id
+        bson: _id
+        json: id
+        primary: true
+        generated: true
+
+      - name: email
+        type: string
+        required: true
+        unique: true
+        validation:
+          format: email
+          min_length: 3
+          max_length: 320
+
+      - name: password_hash
+        type: string
+        json: "-"
+        required: true
+        write_only: true
+
+      - name: age
+        type: int32
+        validation:
+          minimum: 0
+
+      - name: balance
+        type: decimal128
+        validation:
+          minimum: "0"
+
+      - name: active
+        type: bool
+        default: true
+
+      - name: status
+        type: string
+        required: true
+        default: active
+        enum: [active, blocked, disabled]
+
+      - name: profile
+        type: Profile
+
+      - name: tags
+        type: "[]string"
+        default: []
+
+  - name: Profile
+    embedded: true
+    fields:
+      - name: first_name
+        type: string
+        required: true
+
+      - name: last_name
+        type: string
+        required: true
+
+      - name: avatar_url
+        type: string
+        validation:
+          format: uri
+
+# ------------------------------------------------------------------------------
+# INDEXES
+# ------------------------------------------------------------------------------
+indexes:
+  - model: User
+    name: idx_users_email_unique
+    keys:
+      - field: email
+        order: asc
+    unique: true
+
+  - model: User
+    name: idx_users_status
+    keys:
+      - field: status
+        order: asc
+
+# ------------------------------------------------------------------------------
+# CUSTOM METHODS
+# ------------------------------------------------------------------------------
+# operation: find_one, find_many, update_one, delete_one, aggregate.
+# op: eq, ne, gt, gte, lt, lte, in, nin, regex, exists.
+# source: path, query, header, body.
+methods:
+  - model: User
+    name: FindByEmail
+    operation: find_one
+    http:
+      method: GET
+      path: /users/by-email
+    parameters:
+      - name: email
+        type: string
+        source: query
+        required: true
+    filter:
+      - field: email
+        op: eq
+        param: email
+
+  - model: User
+    name: FindActiveUsers
+    operation: find_many
+    http:
+      method: GET
+      path: /users/active
+    filter:
+      - field: status
+        op: eq
+        value: active
+    sort:
+      - field: created_at
+        order: desc
+    pagination:
+      default_limit: 20
+      max_limit: 100
+
+  - model: User
+    name: UpdateProfile
+    operation: update_one
+    http:
+      method: PATCH
+      path: /users/{user_id}/profile
+    parameters:
+      - name: user_id
+        type: object_id
+        source: path
+        required: true
+      - name: profile
+        type: Profile
+        source: body
+        required: true
+    filter:
+      - field: id
+        op: eq
+        param: user_id
+    update:
+      set:
+        - field: profile
+          param: profile
+
+  - model: User
+    name: DeleteBlockedUser
+    operation: delete_one
+    http:
+      method: DELETE
+      path: /users/{user_id}/blocked
+    parameters:
+      - name: user_id
+        type: object_id
+        source: path
+        required: true
+    filter:
+      - field: id
+        op: eq
+        param: user_id
+      - field: status
+        op: eq
+        value: blocked
+
+  - model: User
+    name: StatusStats
+    operation: aggregate
+    http:
+      method: GET
+      path: /users/status-stats
+    pipeline:
+      - group:
+          by: status
+          count:
+            as: total

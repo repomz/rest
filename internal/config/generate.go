@@ -50,7 +50,11 @@ func generate(dir string, mode configMode) error {
 		return err
 	}
 	for _, file := range files {
-		if err := os.WriteFile(filepath.Join(dir, file.name), file.content, 0o644); err != nil {
+		target := filepath.Join(dir, file.name)
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, file.content, 0o644); err != nil {
 			return err
 		}
 	}
@@ -84,7 +88,7 @@ func configFiles(mode configMode) ([]configFile, error) {
 				content = []byte(strings.Replace(string(content), "  sqlc_path: ../sqlc/sqlc.yaml", "  sqlc_path: ../sqlc_example/sqlc.yaml", 1))
 			}
 		}
-		files = append(files, configFile{name: filepath.Base(path), content: content})
+		files = append(files, configFile{name: filepath.ToSlash(path), content: content})
 		return nil
 	})
 	if err != nil {

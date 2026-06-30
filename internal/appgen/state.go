@@ -17,12 +17,20 @@ type generationState struct {
 	Fingerprint string `json:"fingerprint"`
 }
 
-const generationContractVersion = "auth-v5"
+const generationContractVersion = "auth-v6"
 
 func generationFingerprint(ctx Context) (string, error) {
 	paths := []string{filepath.Join(ctx.ConfigDir, "rest.yaml")}
 	if ctx.Config.Rest.SQL.Bool() {
 		paths = append(paths, filepath.Join(ctx.ConfigDir, "sqlc_rest.yaml"))
+	}
+	if ctx.Config.Rest.Mongo.Bool() {
+		paths = append(paths, filepath.Join(ctx.ConfigDir, "mongo_rest.yaml"))
+		files, err := mongoContractFiles(ctx)
+		if err != nil {
+			return "", err
+		}
+		paths = append(paths, files...)
 	}
 	authPath := filepath.Join(ctx.ConfigDir, "auth_rest.yaml")
 	if ctx.Config.Rest.Auth.Bool() {

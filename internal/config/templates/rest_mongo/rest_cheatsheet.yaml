@@ -1,0 +1,85 @@
+# ==============================================================================
+# REST: MONGODB CONTRACT CHEATSHEET
+# ==============================================================================
+# Справочная схема контракта. Этот файл не является моделью приложения.
+# Создавайте рядом файлы сущностей, например item.yaml, order.yaml, user.yaml.
+#
+# Один файл обычно описывает одну collection-модель, её embedded-типы,
+# индексы и custom methods. Генератор будет читать YAML-файлы из rest_mongo/,
+# исключая системные rest_*.yaml файлы.
+#
+# ------------------------------------------------------------------------------
+# ENTITY FILE SHAPE
+# ------------------------------------------------------------------------------
+# version: "0.1.0"
+#
+# models:
+#   - name: EntityName               # Go type name.
+#     collection: entity_names       # MongoDB collection; не нужно для embedded.
+#     embedded: false                # true для вложенных value objects.
+#     timestamps: true               # Добавить created_at / updated_at.
+#                                    # Collection-модели получают стандартный CRUD.
+#     fields:
+#       - name: id
+#         type: object_id            # string, bool, int32, int64, float64, time,
+#                                    # object_id, decimal128, Embedded, []Type.
+#         bson: _id                  # Можно не указывать, если совпадает с name.
+#         json: id                   # Можно не указывать, если совпадает с name.
+#         primary: true
+#         generated: true
+#
+#       - name: title
+#         type: string
+#         required: true
+#         unique: true
+#         default: draft
+#         enum: [draft, published]
+#         write_only: true           # Например password_hash.
+#         reference: User            # Простая ссылка на другую model.
+#         validation:
+#           format: email            # email, uri, uuid и т.п.
+#           min_length: 3
+#           max_length: 320
+#           minimum: 0
+#           min_items: 1
+#
+# indexes:
+#   - model: EntityName
+#     name: idx_entity_field
+#     keys:
+#       - field: title
+#         order: asc                 # asc или desc.
+#     unique: true
+#
+# methods:
+#   - model: EntityName
+#     name: FindByTitle
+#     operation: find_one            # find_one, find_many, update_one,
+#                                    # delete_one, aggregate.
+#     http:
+#       method: GET
+#       path: /entities/by-title
+#     parameters:
+#       - name: title
+#         type: string
+#         source: query              # path, query, header, body.
+#         required: true
+#     filter:
+#       - field: title
+#         op: eq                     # eq, ne, gt, gte, lt, lte, in, nin,
+#                                    # regex, exists.
+#         param: title               # Или value: active для констант.
+#     update:
+#       set:
+#         - field: status
+#           param: status
+#     sort:
+#       - field: created_at
+#         order: desc
+#     pagination:
+#       default_limit: 20
+#       max_limit: 100
+version: "0.1.0"
+
+# Этот файл намеренно содержит только комментарии и version.
+# Рабочие entity-файлы создавайте рядом: item.yaml, user.yaml, order.yaml.

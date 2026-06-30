@@ -31,7 +31,7 @@ func TestGenerateCopiesCanonicalYAMLFiles(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		got, err := os.ReadFile(filepath.Join(dir, filepath.Base(path)))
+		got, err := os.ReadFile(filepath.Join(dir, filepath.ToSlash(path)))
 		if err != nil {
 			return err
 		}
@@ -50,7 +50,7 @@ func TestGeneratedConfigsKeepDocumentation(t *testing.T) {
 	if err := Generate(dir); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"rest.yaml", "sqlc_rest.yaml", "mongo_rest.yaml"} {
+	for _, name := range []string{"rest.yaml", "sqlc_rest.yaml", "mongo_rest.yaml", "rest_mongo/rest_cheatsheet.yaml", "rest_mongo/rest_user_example.yaml"} {
 		content, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
@@ -93,13 +93,38 @@ func TestGenerateForExampleUsesExampleSQLCPath(t *testing.T) {
 
 func TestFutureFeatureConfigsAreValidContracts(t *testing.T) {
 	mongo := readEmbeddedYAMLMap(t, "mongo_rest.yaml")
-	for _, key := range []string{"version", "driver", "connection", "generation", "models", "indexes", "methods", "hooks"} {
+	for _, key := range []string{"version", "connection", "engine", "mongo", "generation"} {
 		requireMapKey(t, mongo, key)
+	}
+	mongoSettings := requireMapValue(t, mongo, "mongo")
+	requireMapKey(t, mongoSettings, "models_path")
+	if mongoSettings["models_path"] != "rest_mongo" {
+		t.Fatal("mongo.models_path must point to rest_mongo directory")
+	}
+	if _, exists := mongoSettings["enable"]; exists {
+		t.Fatal("mongo_rest.yaml must not duplicate rest.yaml mongo switch inside mongo.enable")
+	}
+	for _, removed := range []string{"driver", "hooks", "models", "indexes", "methods"} {
+		if _, exists := mongo[removed]; exists {
+			t.Fatalf("mongo_rest.yaml should not expose premature %q settings", removed)
+		}
 	}
 	if _, exists := mongo["enabled"]; exists {
 		t.Fatal("mongo_rest.yaml must not duplicate the rest.yaml feature switch")
 	}
-	assertMongoIndexesReferenceExistingFields(t, mongo)
+
+	cheatsheet := readEmbeddedYAMLMap(t, "rest_mongo/rest_cheatsheet.yaml")
+	requireMapKey(t, cheatsheet, "version")
+	if _, exists := cheatsheet["models"]; exists {
+		t.Fatal("rest_mongo/rest_cheatsheet.yaml must be documentation only, not an active model")
+	}
+
+	mongoExamples := readEmbeddedYAMLMap(t, "rest_mongo/rest_user_example.yaml")
+	for _, key := range []string{"version", "models", "indexes", "methods"} {
+		requireMapKey(t, mongoExamples, key)
+	}
+	assertMongoIndexesReferenceExistingFields(t, mongoExamples)
+	assertMongoExamplesShowSupportedMethods(t, mongoExamples)
 
 	auth := readEmbeddedYAMLMap(t, "auth_rest.yaml")
 	for _, key := range []string{"version", "identity", "endpoints", "authentication", "authorization"} {
@@ -301,6 +326,10 @@ func assertMongoIndexesReferenceExistingFields(t *testing.T, mongo map[string]in
 		}
 		name, _ := model["name"].(string)
 		fields := map[string]bool{}
+		if model["timestamps"] == true {
+			fields["created_at"] = true
+			fields["updated_at"] = true
+		}
 		for _, rawField := range requireSliceValue(t, model, "fields") {
 			field, ok := rawField.(map[string]interface{})
 			if !ok {
@@ -330,6 +359,24 @@ func assertMongoIndexesReferenceExistingFields(t *testing.T, mongo map[string]in
 			if !fields[fieldName] {
 				t.Fatalf("Mongo index for %s references unknown field %q", modelName, fieldName)
 			}
+		}
+	}
+}
+
+func assertMongoExamplesShowSupportedMethods(t *testing.T, mongo map[string]interface{}) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, rawMethod := range requireSliceValue(t, mongo, "methods") {
+		method, ok := rawMethod.(map[string]interface{})
+		if !ok {
+			t.Fatalf("Mongo method is not an object: %#v", rawMethod)
+		}
+		operation, _ := method["operation"].(string)
+		seen[operation] = true
+	}
+	for _, operation := range []string{"find_one", "find_many", "update_one", "delete_one", "aggregate"} {
+		if !seen[operation] {
+			t.Fatalf("rest_mongo/rest_user_example.yaml must show %s method", operation)
 		}
 	}
 }

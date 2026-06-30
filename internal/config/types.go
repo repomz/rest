@@ -204,10 +204,36 @@ type DBConnection struct {
 	Options            string  `yaml:"options"`
 }
 type Bundle struct {
-	Dir  string
-	Rest Rest
-	SQL  *SQL
-	Auth *Auth
+	Dir   string
+	Rest  Rest
+	SQL   *SQL
+	Mongo *Mongo
+	Auth  *Auth
+}
+
+type Mongo struct {
+	Version    string          `yaml:"version"`
+	Connection MongoConnection `yaml:"connection"`
+	Engine     string          `yaml:"engine"`
+	Mongo      MongoSettings   `yaml:"mongo"`
+	Generation MongoGeneration `yaml:"generation"`
+}
+
+type MongoConnection struct {
+	URIEnv   string `yaml:"uri_env"`
+	Database string `yaml:"database"`
+	Timeout  string `yaml:"timeout"`
+}
+
+type MongoSettings struct {
+	ModelsPath string `yaml:"models_path"`
+}
+
+type MongoGeneration struct {
+	Package              string `yaml:"package"`
+	Output               string `yaml:"output"`
+	RepositoryOutput     string `yaml:"repository_output"`
+	CreateIndexesOnStart bool   `yaml:"create_indexes_on_start"`
 }
 
 type Auth struct {

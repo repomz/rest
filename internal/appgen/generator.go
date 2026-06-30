@@ -11,6 +11,7 @@ import (
 
 	"github.com/repomz/rest/internal/config"
 	"github.com/repomz/rest/internal/generator"
+	"gopkg.in/yaml.v3"
 )
 
 type Generator struct {
@@ -50,7 +51,7 @@ func (g Generator) Generate(configDir string) error {
 		}
 	}
 	if !hasEnabledFeature {
-		return fmt.Errorf("no implemented generation feature is enabled; set sqlc.enable to enable in sqlc_rest.yaml after preparing SQLC files")
+		return fmt.Errorf("no implemented generation feature is enabled; set sqlc.enable to enable in sqlc_rest.yaml after preparing SQLC files; Mongo code generation is not implemented yet")
 	}
 	if err := runAutoSQLC(ctx); err != nil {
 		return err
@@ -90,9 +91,6 @@ func (g Generator) Generate(configDir string) error {
 }
 
 func validateConfig(bundle config.Bundle) error {
-	if bundle.Rest.Mongo.Bool() {
-		return fmt.Errorf("mongo generation is not implemented yet")
-	}
 	if language := strings.ToLower(bundle.Rest.Language); language != "" && language != "golang" && language != "go" {
 		return fmt.Errorf("unsupported language %q", bundle.Rest.Language)
 	}
@@ -238,6 +236,19 @@ func validateConfig(bundle config.Bundle) error {
 			}
 		}
 	}
+	if bundle.Mongo != nil {
+		if engine := strings.ToLower(bundle.Mongo.Engine); engine != "" && engine != "mongo" && engine != "mongodb" {
+			return fmt.Errorf("unsupported Mongo engine %q", bundle.Mongo.Engine)
+		}
+		if bundle.Mongo.Mongo.ModelsPath == "" {
+			return fmt.Errorf("mongo.models_path is required")
+		}
+		if bundle.Mongo.Connection.Timeout != "" {
+			if _, err := time.ParseDuration(bundle.Mongo.Connection.Timeout); err != nil {
+				return fmt.Errorf("mongo.connection.timeout must be a Go duration: %w", err)
+			}
+		}
+	}
 	if bundle.Auth != nil {
 		strategy := strings.ToLower(bundle.Auth.Authentication.Strategy)
 		if strategy != "jwt" && strategy != "basic" {
@@ -349,14 +360,6 @@ func ensureModuleRequirements(goMod string, rest config.Rest) error {
 }
 
 func discoverAuthEndpoints(ctx Context) ([]config.GeneratedEndpoint, error) {
-	if ctx.Config.SQL == nil {
-		return nil, fmt.Errorf("auth endpoint discovery requires SQLC generation")
-	}
-	sqlcPath := resolveSQLCPath(ctx.ConfigDir, ctx.Config.SQL.SQLC.Path)
-	discovered, err := generator.DiscoverEndpoints(sqlcPath)
-	if err != nil {
-		return nil, err
-	}
 	endpoints := []config.GeneratedEndpoint{
 		{Name: "Root", Method: "GET", Path: routePath(ctx.Config.Rest.HTTP.BasePath, "/"), Public: true},
 	}
@@ -372,14 +375,32 @@ func discoverAuthEndpoints(ctx Context) ([]config.GeneratedEndpoint, error) {
 	if ctx.Config.Rest.OpenAPI.Enabled.Bool() && ctx.Config.Rest.OpenAPI.WithUI.Bool() {
 		endpoints = append(endpoints, config.GeneratedEndpoint{Name: "OpenAPIUI", Method: "GET", Path: routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.OpenAPI.UIPath), Public: true})
 	}
-	for _, endpoint := range discovered {
+	if ctx.Config.SQL != nil {
+		sqlcPath := resolveSQLCPath(ctx.ConfigDir, ctx.Config.SQL.SQLC.Path)
+		discovered, err := generator.DiscoverEndpoints(sqlcPath)
+		if err != nil {
+			return nil, err
+		}
+		for _, endpoint := range discovered {
+			if authStrategy(ctx) == "jwt" && isAuthIdentityEndpoint(ctx, endpoint.Path) {
+				continue
+			}
+			endpoints = append(endpoints, config.GeneratedEndpoint{
+				Name: endpoint.Name, Method: endpoint.Method,
+				Path: routePath(ctx.Config.Rest.HTTP.BasePath, endpoint.Path),
+			})
+		}
+	}
+	discoveredMongo, err := discoverMongoAuthEndpoints(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, endpoint := range discoveredMongo {
 		if authStrategy(ctx) == "jwt" && isAuthIdentityEndpoint(ctx, endpoint.Path) {
 			continue
 		}
-		endpoints = append(endpoints, config.GeneratedEndpoint{
-			Name: endpoint.Name, Method: endpoint.Method,
-			Path: routePath(ctx.Config.Rest.HTTP.BasePath, endpoint.Path),
-		})
+		endpoint.Path = routePath(ctx.Config.Rest.HTTP.BasePath, endpoint.Path)
+		endpoints = append(endpoints, endpoint)
 	}
 	if ctx.Config.Rest.Auth.Bool() {
 		endpoints = append(endpoints,
@@ -388,6 +409,161 @@ func discoverAuthEndpoints(ctx Context) ([]config.GeneratedEndpoint, error) {
 		)
 	}
 	return endpoints, nil
+}
+
+type mongoContractFile struct {
+	Models  []mongoContractModel  `yaml:"models"`
+	Methods []mongoContractMethod `yaml:"methods"`
+}
+
+type mongoContractModel struct {
+	Name       string `yaml:"name"`
+	Collection string `yaml:"collection"`
+	Embedded   bool   `yaml:"embedded"`
+}
+
+type mongoContractMethod struct {
+	Name      string `yaml:"name"`
+	Operation string `yaml:"operation"`
+	HTTP      struct {
+		Method string `yaml:"method"`
+		Path   string `yaml:"path"`
+	} `yaml:"http"`
+}
+
+func discoverMongoAuthEndpoints(ctx Context) ([]config.GeneratedEndpoint, error) {
+	if ctx.Config.Mongo == nil {
+		return nil, nil
+	}
+	files, err := mongoContractFiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]struct{}{}
+	var endpoints []config.GeneratedEndpoint
+	add := func(name, method, path string) {
+		method = strings.ToUpper(strings.TrimSpace(method))
+		path = normalizeMongoEndpointPath(path)
+		if name == "" || method == "" || path == "" {
+			return
+		}
+		key := method + " " + path
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		endpoints = append(endpoints, config.GeneratedEndpoint{
+			Name:   name,
+			Method: method,
+			Path:   path,
+		})
+	}
+	for _, path := range files {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		var contract mongoContractFile
+		if err := yaml.Unmarshal(content, &contract); err != nil {
+			return nil, fmt.Errorf("parse mongo contract %s: %w", path, err)
+		}
+		for _, model := range contract.Models {
+			if model.Embedded || model.Name == "" || model.Collection == "" {
+				continue
+			}
+			base := normalizeMongoEndpointPath(model.Collection)
+			add("GetAll"+pluralizeGoName(model.Name), "GET", base)
+			add("Create"+model.Name, "POST", base)
+			add("Get"+model.Name+"ByID", "GET", base+"/{id}")
+			add("Update"+model.Name, "PATCH", base+"/{id}")
+			add("Delete"+model.Name, "DELETE", base+"/{id}")
+		}
+		for _, method := range contract.Methods {
+			httpMethod := method.HTTP.Method
+			if httpMethod == "" {
+				httpMethod = mongoHTTPMethodForOperation(method.Operation)
+			}
+			add(method.Name, httpMethod, method.HTTP.Path)
+		}
+	}
+	sort.Slice(endpoints, func(i, j int) bool {
+		if endpoints[i].Path == endpoints[j].Path {
+			return endpoints[i].Method < endpoints[j].Method
+		}
+		return endpoints[i].Path < endpoints[j].Path
+	})
+	return endpoints, nil
+}
+
+func mongoContractFiles(ctx Context) ([]string, error) {
+	if ctx.Config.Mongo == nil {
+		return nil, nil
+	}
+	modelsPath := ctx.Config.Mongo.Mongo.ModelsPath
+	if modelsPath == "" {
+		modelsPath = "rest_mongo"
+	}
+	if !filepath.IsAbs(modelsPath) {
+		modelsPath = filepath.Join(ctx.ConfigDir, modelsPath)
+	}
+	info, err := os.Stat(modelsPath)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		if isActiveMongoContract(modelsPath) {
+			return []string{modelsPath}, nil
+		}
+		return nil, nil
+	}
+	matches, err := filepath.Glob(filepath.Join(modelsPath, "*.yaml"))
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, match := range matches {
+		if isActiveMongoContract(match) {
+			files = append(files, match)
+		}
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func isActiveMongoContract(path string) bool {
+	base := filepath.Base(path)
+	return !strings.HasPrefix(base, ".") && !strings.HasPrefix(base, "rest_")
+}
+
+func normalizeMongoEndpointPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	return "/" + strings.Trim(path, "/")
+}
+
+func pluralizeGoName(name string) string {
+	if strings.HasSuffix(name, "s") {
+		return name
+	}
+	if strings.HasSuffix(name, "y") && len(name) > 1 {
+		return strings.TrimSuffix(name, "y") + "ies"
+	}
+	return name + "s"
+}
+
+func mongoHTTPMethodForOperation(operation string) string {
+	switch strings.ToLower(operation) {
+	case "find_one", "find_many", "aggregate":
+		return "GET"
+	case "update_one":
+		return "PATCH"
+	case "delete_one":
+		return "DELETE"
+	default:
+		return ""
+	}
 }
 
 func authStrategy(ctx Context) string {
