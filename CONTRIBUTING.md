@@ -43,7 +43,7 @@ make changelog
 
 Examples:
 
-```text
+```bash
 feat(generator): add pagination templates
 fix(update): handle releases without notes
 docs(readme): explain SQLC setup
