@@ -137,6 +137,29 @@ func TestGenerationFingerprintIncludesMongoContracts(t *testing.T) {
 	}
 }
 
+func TestValidateReferencedYAMLInputsRejectsDuplicateSQLCKeys(t *testing.T) {
+	configDir := t.TempDir()
+	sqlcDir := filepath.Join(t.TempDir(), "rest_sqlc")
+	if err := os.MkdirAll(sqlcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sqlcDir, "rest_sqlc.yaml"), []byte("version: \"2\"\nversion: duplicate\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bundle := minimalBundle()
+	bundle.Dir = configDir
+	bundle.Rest.SQL = config.Enabled(true)
+	bundle.SQL = &config.SQL{
+		SQLC: config.SQLC{
+			Path: filepath.Join(sqlcDir, "rest_sqlc.yaml"),
+		},
+	}
+	err := validateReferencedYAMLInputs(NewContext(bundle))
+	if err == nil || !strings.Contains(err.Error(), "duplicate key") {
+		t.Fatalf("expected duplicate SQLC YAML key error, got %v", err)
+	}
+}
+
 func minimalBundle() config.Bundle {
 	return config.Bundle{
 		Rest: config.Rest{

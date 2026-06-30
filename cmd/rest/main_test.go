@@ -181,3 +181,17 @@ func TestRunInitRejectsSQLCAndExampleTogether(t *testing.T) {
 		t.Fatal("expected --sqlc and --example conflict")
 	}
 }
+
+func TestRunGenValidatesYAMLBeforeGeneration(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "rest_config")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "rest.yaml"), []byte("sql: enable\nsql: disable\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := runGen([]string{"--path", dir})
+	if err == nil || !strings.Contains(err.Error(), "duplicate key") {
+		t.Fatalf("expected duplicate YAML key error, got %v", err)
+	}
+}

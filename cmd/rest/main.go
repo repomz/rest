@@ -125,6 +125,9 @@ func runGen(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := config.ValidateYAMLTree(configDir); err != nil {
+		return err
+	}
 	appGenerator := appgen.New(appgen.DefaultRegistry()...)
 	return appGenerator.Generate(configDir)
 }

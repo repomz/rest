@@ -453,6 +453,32 @@ func TestSQLConfigSupportsLegacyPasswordKey(t *testing.T) {
 	}
 }
 
+func TestValidateYAMLTreeRejectsSyntaxErrors(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "rest.yaml"), []byte("http:\n  port: [8080\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := ValidateYAMLTree(dir)
+	if err == nil || !strings.Contains(err.Error(), "invalid YAML") {
+		t.Fatalf("expected invalid YAML error, got %v", err)
+	}
+}
+
+func TestValidateYAMLTreeRejectsDuplicateKeys(t *testing.T) {
+	dir := t.TempDir()
+	modelsDir := filepath.Join(dir, "rest_mongo")
+	if err := os.Mkdir(modelsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelsDir, "item.yaml"), []byte("models:\n  - name: Item\n    name: Duplicate\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := ValidateYAMLTree(dir)
+	if err == nil || !strings.Contains(err.Error(), "duplicate key") {
+		t.Fatalf("expected duplicate key error, got %v", err)
+	}
+}
+
 func TestLoadFeatureSwitches(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "rest_config")
 	if err := Generate(dir); err != nil {

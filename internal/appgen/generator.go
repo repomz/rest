@@ -31,6 +31,9 @@ func (g Generator) Generate(configDir string) error {
 		return err
 	}
 	ctx := NewContext(bundle)
+	if err := validateReferencedYAMLInputs(ctx); err != nil {
+		return err
+	}
 	fingerprint, err := generationFingerprint(ctx)
 	if err != nil {
 		return err
@@ -86,6 +89,26 @@ func (g Generator) Generate(configDir string) error {
 	}
 	if err := saveGenerationFingerprint(ctx.ProjectDir, fingerprint); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateReferencedYAMLInputs(ctx Context) error {
+	if ctx.Config.SQL != nil && ctx.Config.SQL.SQLC.Path != "" {
+		if err := config.ValidateYAMLFile(resolveSQLCPath(ctx.ConfigDir, ctx.Config.SQL.SQLC.Path)); err != nil {
+			return err
+		}
+	}
+	if ctx.Config.Mongo != nil {
+		files, err := mongoContractFiles(ctx)
+		if err != nil {
+			return err
+		}
+		for _, file := range files {
+			if err := config.ValidateYAMLFile(file); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
