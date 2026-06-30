@@ -71,6 +71,9 @@ func configFiles(mode configMode) ([]configFile, error) {
 		if entry.IsDir() || filepath.Ext(path) != ".yaml" {
 			return nil
 		}
+		if filepath.Base(path) == "auth_rest.yaml" {
+			return nil
+		}
 		content, err := configtemplates.Files.ReadFile(path)
 		if err != nil {
 			return err

@@ -52,6 +52,11 @@ func Generate(opts Options) error {
 	attachEndpoints(tables, endpoints)
 	for i := range tables {
 		tables[i].Queries = detectQueries(queryMeta, tables[i])
+		tables[i].CreateArg = detectCreateArg(tables[i], paramStructs)
+	}
+	completeAuthFeatures(&opts.Features.Auth, tables)
+	if err := validateAuthGeneration(opts.Features.Auth, tables); err != nil {
+		return err
 	}
 	dbOut, err := filepath.Rel(outDir, cfg.DBOut)
 	if err != nil || dbOut == ".." || filepath.IsAbs(dbOut) || len(dbOut) >= 3 && dbOut[:3] == ".."+string(filepath.Separator) {
@@ -91,12 +96,22 @@ func Generate(opts Options) error {
 			files[".env"] = envExampleTemplate
 		}
 	}
-	if opts.Features.Docker.Enabled {
+	if opts.Features.Docker.Enabled || opts.Features.Docker.Compose {
 		files[defaultPath(opts.Features.Docker.Output, "Dockerfile")] = dockerfileTemplate
 		files[defaultPath(opts.Features.Docker.DockerignoreOutput, ".dockerignore")] = dockerignoreTemplate
+		if opts.Features.Docker.Compose {
+			files[defaultPath(opts.Features.Docker.ComposeOutput, "docker-compose.yml")] = dockerComposeTemplate
+		}
 	}
 	if opts.Features.HTTP.CORS || opts.Features.HTTP.Recovery || opts.Features.HTTP.RequestID || opts.Features.HTTP.MaxBodyBytes > 0 {
 		files["internal/app/transport/middleware/http.go"] = httpMiddlewareTemplate
+	}
+	if opts.Features.Auth.Enabled {
+		files["internal/app/transport/httpserver/auth_middleware.go"] = authMiddlewareTemplate
+		files["internal/app/transport/httpserver/password_helpers.go"] = passwordHelpersTemplate
+		if strings.EqualFold(opts.Features.Auth.Strategy, "jwt") {
+			files["internal/app/services/token_service.go"] = tokenServiceTemplate
+		}
 	}
 	if opts.Features.Logging.Enabled {
 		files["internal/app/logging/logger.go"] = loggingTemplate
@@ -158,6 +173,11 @@ func Generate(opts Options) error {
 		}
 		if !opts.Features.Build.Configured || opts.Features.Build.HandlerTests {
 			tableFiles[fmt.Sprintf("internal/app/transport/httpserver/%s_handlers_test.go", tbl.Singular)] = httpHandlersTestTemplate
+		}
+		if opts.Features.Auth.Enabled && strings.EqualFold(opts.Features.Auth.Strategy, "jwt") && isAuthIdentityTable(tbl, opts.Features.Auth) {
+			delete(tableFiles, fmt.Sprintf("internal/app/transport/httpserver/%s_handlers.go", tbl.Singular))
+			delete(tableFiles, fmt.Sprintf("internal/app/transport/httpserver/%s_handlers_test.go", tbl.Singular))
+			tableFiles["internal/app/transport/httpserver/auth_handlers.go"] = authHandlersTemplate
 		}
 		if opts.Features.Build.Curl {
 			tableFiles[fmt.Sprintf("curl/%s.md", tbl.Singular)] = curlTemplate
@@ -288,6 +308,119 @@ func generatedRelPath(root, path string) (string, bool, error) {
 	return filepath.ToSlash(rel), true, nil
 }
 
+func completeAuthFeatures(auth *AuthFeatures, tables []table) {
+	if auth == nil || !auth.Enabled {
+		return
+	}
+	if auth.UserTable == "" {
+		auth.UserTable = "users"
+	}
+	if auth.UserModel == "" {
+		auth.UserModel = "User"
+	}
+	if auth.ClaimsModel == "" {
+		auth.ClaimsModel = auth.UserModel
+	}
+	if auth.UserIDField == "" {
+		auth.UserIDField = "id"
+	}
+	if auth.UsernameField == "" {
+		auth.UsernameField = "username"
+	}
+	if auth.PasswordField == "" {
+		auth.PasswordField = "password"
+	}
+	if auth.RolesField == "" {
+		auth.RolesField = "roles"
+	}
+	for _, tbl := range tables {
+		if !isAuthIdentityTable(tbl, *auth) {
+			continue
+		}
+		for _, col := range tbl.Columns {
+			switch col.Name {
+			case auth.UserIDField:
+				auth.UserIDGoName = col.GoName
+			case auth.UsernameField:
+				auth.UsernameGoName = col.GoName
+			case auth.PasswordField:
+				auth.PasswordGoName = col.GoName
+			case auth.RolesField:
+				auth.RolesGoName = col.GoName
+			}
+		}
+	}
+	if auth.UserIDGoName == "" {
+		auth.UserIDGoName = exported(auth.UserIDField)
+	}
+	if auth.UsernameGoName == "" {
+		auth.UsernameGoName = exported(auth.UsernameField)
+	}
+	if auth.PasswordGoName == "" {
+		auth.PasswordGoName = exported(auth.PasswordField)
+	}
+	if auth.RolesGoName == "" {
+		auth.RolesGoName = exported(auth.RolesField)
+	}
+	if auth.JWTAccessTokenTTL == "" {
+		auth.JWTAccessTokenTTL = "15m"
+	}
+	if auth.JWTRefreshStorage == "" {
+		auth.JWTRefreshStorage = "context"
+	}
+}
+
+func isAuthIdentityTable(tbl table, auth AuthFeatures) bool {
+	return strings.EqualFold(tbl.Name, auth.UserTable) || strings.EqualFold(tbl.GoName, auth.UserModel)
+}
+
+func validateAuthGeneration(auth AuthFeatures, tables []table) error {
+	if !auth.Enabled || !strings.EqualFold(auth.Strategy, "jwt") {
+		return nil
+	}
+	for _, tbl := range tables {
+		if !isAuthIdentityTable(tbl, auth) {
+			continue
+		}
+		if !tbl.Queries.Create {
+			return fmt.Errorf("jwt auth requires Create%s SQLC query for signup", tbl.GoName)
+		}
+		if !tbl.Queries.GetAll {
+			return fmt.Errorf("jwt auth requires Get%s SQLC query for signin lookup", tbl.GoPlural)
+		}
+		if !tableHasColumn(tbl, auth.UsernameField) {
+			return fmt.Errorf("jwt auth identity username_field %q was not found in table %s", auth.UsernameField, tbl.Name)
+		}
+		if !tableHasColumn(tbl, auth.PasswordField) {
+			return fmt.Errorf("jwt auth identity password_field %q was not found in table %s", auth.PasswordField, tbl.Name)
+		}
+		return nil
+	}
+	return fmt.Errorf("jwt auth requires identity table %q / model %q generated by SQLC", auth.UserTable, auth.UserModel)
+}
+
+func tableHasColumn(tbl table, name string) bool {
+	for _, col := range tbl.Columns {
+		if strings.EqualFold(col.Name, name) || strings.EqualFold(col.GoName, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func detectCreateArg(tbl table, paramStructs map[string][]endpointParam) string {
+	if !tbl.Queries.Create {
+		return ""
+	}
+	if _, ok := paramStructs["Create"+tbl.GoName+"Params"]; ok {
+		return "struct"
+	}
+	if len(tbl.CreateCols) == 1 {
+		return "single"
+	}
+	return "struct"
+}
+
 func defaultPath(path, fallback string) string {
 	if path == "" {
 		return fallback
@@ -304,6 +437,7 @@ func generatedOptionalPaths(features FeatureOptions) []string {
 		defaultPath(features.Build.CDPath, ".github/workflows/cd.yaml"),
 		defaultPath(features.Docker.Output, "Dockerfile"),
 		defaultPath(features.Docker.DockerignoreOutput, ".dockerignore"),
+		defaultPath(features.Docker.ComposeOutput, "docker-compose.yml"),
 	}
 }
 

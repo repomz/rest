@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	{{- if .Features.HTTP.GracefulShutdown }}
+	{{- if or .Features.Auth.Enabled .Features.HTTP.GracefulShutdown }}
 	"os"
+	{{- end }}
+	{{- if .Features.HTTP.GracefulShutdown }}
 	"os/signal"
 	"syscall"
 	{{- end }}
@@ -84,9 +86,34 @@ func run() error {
 	{{ .Singular }}Repo := pgrepo.New{{ .GoName }}Repo(queries)
 	{{ .Singular }}Service := services.New{{ .GoName }}Service({{ .Singular }}Repo)
 {{- end }}
+	{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "jwt") }}
+	tokenService := services.NewTokenService(services.TokenConfig{
+		TTL: mustDuration({{ printf "%q" (defaultString .Features.Auth.JWTAccessTokenTTL "15m") }}),
+		RefreshToken: {{ .Features.Auth.JWTRefreshToken }},
+		Secret: os.Getenv({{ printf "%q" .Features.Auth.JWTSecretEnv }}),
+		Issuer: {{ printf "%q" .Features.Auth.JWTIssuer }},
+		Audience: {{ printf "%q" .Features.Auth.JWTAudience }},
+	})
+	{{- end }}
+	{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "basic") }}
+	basicAuthConfig := httpserver.BasicAuthConfig{
+		Username: os.Getenv({{ printf "%q" .Features.Auth.BasicUsernameEnv }}),
+		Password: os.Getenv({{ printf "%q" .Features.Auth.BasicPasswordEnv }}),
+		Realm: {{ printf "%q" .Features.Auth.BasicRealm }},
+		Roles: []string{
+			{{- range .Features.Auth.BasicRoles }}{{ printf "%q" . }},{{ end }}
+		},
+	}
+	{{- end }}
 	httpServer := httpserver.NewHttpServer(
 {{- range .Tables }}
 		{{ .Singular }}Service,
+{{- end }}
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "jwt") }}
+		tokenService,
+{{- end }}
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "basic") }}
+		basicAuthConfig,
 {{- end }}
 	)
 {{- if not (anyGeneratedEndpointTests .Tables) }}
@@ -98,42 +125,44 @@ func run() error {
 	{{- if ne .Features.HTTP.BasePath "/" }}
 	apiRouter = router.PathPrefix({{ printf "%q" .Features.HTTP.BasePath }}).Subrouter()
 	{{- end }}
-	apiRouter.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("Generated API"))
-	}).Methods(http.MethodGet)
+	apiRouter.HandleFunc("/", {{ authHandler .Features.Auth .Features.HTTP.BasePath "GET" "/" "func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(\"Generated API\")) }" }}).Methods(http.MethodGet)
+	{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "jwt") }}
+	apiRouter.HandleFunc("/signup", httpServer.SignUp).Methods(http.MethodPost)
+	apiRouter.HandleFunc("/signin", httpServer.SignIn).Methods(http.MethodPost)
+	{{- end }}
 	{{- if .Features.HTTP.Health }}
-	apiRouter.HandleFunc({{ printf "%q" (defaultString .Features.HTTP.HealthPath "/health") }}, func(w http.ResponseWriter, _ *http.Request) {
-		server.RespondOK(map[string]string{"status": "ok"}, w, nil)
-	}).Methods(http.MethodGet)
+	apiRouter.HandleFunc({{ printf "%q" (defaultString .Features.HTTP.HealthPath "/health") }}, {{ authHandler .Features.Auth .Features.HTTP.BasePath "GET" (defaultString .Features.HTTP.HealthPath "/health") "func(w http.ResponseWriter, _ *http.Request) { server.RespondOK(map[string]string{\"status\": \"ok\"}, w, nil) }" }}).Methods(http.MethodGet)
 	{{- end }}
 	{{- if .Features.Metrics.Enabled }}
 	metrics.SetDBStatsProvider(dbase.Stats)
-	apiRouter.HandleFunc({{ printf "%q" (defaultString .Features.Metrics.Path "/metrics") }}, metrics.Handler).Methods(http.MethodGet)
+	apiRouter.HandleFunc({{ printf "%q" (defaultString .Features.Metrics.Path "/metrics") }}, {{ authHandler .Features.Auth .Features.HTTP.BasePath "GET" (defaultString .Features.Metrics.Path "/metrics") "metrics.Handler" }}).Methods(http.MethodGet)
 	{{- end }}
 	{{- if .Features.OpenAPI.Enabled }}
-	apiRouter.HandleFunc({{ printf "%q" (defaultString .Features.OpenAPI.SpecPath "/swagger/openapi.yaml") }}, httpserver.SwaggerSpec).Methods(http.MethodGet)
+	apiRouter.HandleFunc({{ printf "%q" (defaultString .Features.OpenAPI.SpecPath "/swagger/openapi.yaml") }}, {{ authHandler .Features.Auth .Features.HTTP.BasePath "GET" (defaultString .Features.OpenAPI.SpecPath "/swagger/openapi.yaml") "httpserver.SwaggerSpec" }}).Methods(http.MethodGet)
 	{{- end }}
 	{{- if and .Features.OpenAPI.Enabled .Features.OpenAPI.WithUI }}
-	apiRouter.HandleFunc({{ printf "%q" (defaultString .Features.OpenAPI.UIPath "/swagger/index.html") }}, httpserver.SwaggerUI).Methods(http.MethodGet)
+	apiRouter.HandleFunc({{ printf "%q" (defaultString .Features.OpenAPI.UIPath "/swagger/index.html") }}, {{ authHandler .Features.Auth .Features.HTTP.BasePath "GET" (defaultString .Features.OpenAPI.UIPath "/swagger/index.html") "httpserver.SwaggerUI" }}).Methods(http.MethodGet)
 	{{- end }}
 {{- range .Tables }}
+{{- if not (and (eq $.Features.Auth.Strategy "jwt") (isAuthIdentityTable . $.Features.Auth)) }}
 {{- if .Queries.GetAll }}
-	apiRouter.HandleFunc("{{ .RouteBase }}", httpServer.GetAll{{ .GoPlural }}).Methods(http.MethodGet)
+	apiRouter.HandleFunc("{{ .RouteBase }}", {{ authHandler $.Features.Auth $.Features.HTTP.BasePath "GET" .RouteBase (printf "httpServer.GetAll%s" .GoPlural) }}).Methods(http.MethodGet)
 {{- end }}
 {{- if .Queries.Create }}
-	apiRouter.HandleFunc("{{ .RouteBase }}", httpServer.Create{{ .GoName }}).Methods(http.MethodPost)
+	apiRouter.HandleFunc("{{ .RouteBase }}", {{ authHandler $.Features.Auth $.Features.HTTP.BasePath "POST" .RouteBase (printf "httpServer.Create%s" .GoName) }}).Methods(http.MethodPost)
 {{- end }}
 {{- if .Queries.DeleteAll }}
-	apiRouter.HandleFunc("{{ .RouteBase }}", httpServer.DeleteAll{{ .GoPlural }}).Methods(http.MethodDelete)
+	apiRouter.HandleFunc("{{ .RouteBase }}", {{ authHandler $.Features.Auth $.Features.HTTP.BasePath "DELETE" .RouteBase (printf "httpServer.DeleteAll%s" .GoPlural) }}).Methods(http.MethodDelete)
 {{- end }}
 {{- range .Endpoints }}
-	apiRouter.HandleFunc("{{ .Path }}", httpServer.{{ .Name }}).Methods("{{ .Method }}")
+	apiRouter.HandleFunc("{{ .Path }}", {{ authHandler $.Features.Auth $.Features.HTTP.BasePath .Method .Path (printf "httpServer.%s" .Name) }}).Methods("{{ .Method }}")
 {{- end }}
 {{- if .Queries.GetByID }}
-	apiRouter.HandleFunc("{{ .RouteBase }}/{id}", httpServer.Get{{ .GoName }}ByID).Methods(http.MethodGet)
+	apiRouter.HandleFunc("{{ .RouteBase }}/{id}", {{ authHandler $.Features.Auth $.Features.HTTP.BasePath "GET" (printf "%s/{id}" .RouteBase) (printf "httpServer.Get%sByID" .GoName) }}).Methods(http.MethodGet)
 {{- end }}
 {{- if .Queries.Delete }}
-	apiRouter.HandleFunc("{{ .RouteBase }}/{id}", httpServer.Delete{{ .GoName }}).Methods(http.MethodDelete)
+	apiRouter.HandleFunc("{{ .RouteBase }}/{id}", {{ authHandler $.Features.Auth $.Features.HTTP.BasePath "DELETE" (printf "%s/{id}" .RouteBase) (printf "httpServer.Delete%s" .GoName) }}).Methods(http.MethodDelete)
+{{- end }}
 {{- end }}
 {{ end }}
 

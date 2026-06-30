@@ -24,6 +24,10 @@ func NotFound(slug string, err error, w http.ResponseWriter, r *http.Request) {
 	httpRespondWithError(err, slug, w, r, "Not found", http.StatusNotFound)
 }
 
+func Unauthorised(slug string, err error, w http.ResponseWriter, r *http.Request) {
+	httpRespondWithError(err, slug, w, r, "Unauthorised", http.StatusUnauthorized)
+}
+
 func RespondWithError(err error, w http.ResponseWriter, r *http.Request) {
 	var slugError slugerrors.SlugError
 	if !errors.As(err, &slugError) {

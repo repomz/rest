@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,17 @@ func Load(dir string) (Bundle, error) {
 			sql.Connection.UserPassword = sql.Connection.LegacyUserPassword
 		}
 		bundle.SQL = &sql
+	}
+	if rest.Auth.Bool() {
+		var auth Auth
+		authPath := filepath.Join(dir, "auth_rest.yaml")
+		if err := readYAML(authPath, &auth); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return Bundle{}, err
+			}
+		} else {
+			bundle.Auth = &auth
+		}
 	}
 	return bundle, nil
 }

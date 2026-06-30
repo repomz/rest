@@ -139,19 +139,19 @@ func TestRunInitModes(t *testing.T) {
 		{
 			name:       "configs only",
 			want:       []string{"rest_config/rest.yaml", "rest_config/sqlc_rest.yaml"},
-			wantAbsent: []string{"sqlc/sqlc.yaml", "sqlc_example/schema/studies.sql"},
+			wantAbsent: []string{"rest_config/auth_rest.yaml", "sqlc/sqlc.yaml", "sqlc_example/schema/studies.sql"},
 		},
 		{
 			name:       "sqlc",
 			args:       []string{"--sqlc"},
 			want:       []string{"rest_config/rest.yaml", "sqlc/sqlc.yaml", "sqlc/schema/item.sql", "sqlc/queries/item.sql"},
-			wantAbsent: []string{"sqlc_example/schema/studies.sql"},
+			wantAbsent: []string{"rest_config/auth_rest.yaml", "sqlc_example/schema/studies.sql"},
 		},
 		{
 			name:       "example",
 			args:       []string{"--example"},
 			want:       []string{"rest_config/rest.yaml", "sqlc_example/sqlc.yaml", "sqlc_example/schema/studies.sql", "sqlc_example/queries/studies.sql"},
-			wantAbsent: []string{"sqlc/sqlc.yaml", "sqlc/schema/item.sql", "sqlc/queries/item.sql"},
+			wantAbsent: []string{"rest_config/auth_rest.yaml", "sqlc/sqlc.yaml", "sqlc/schema/item.sql", "sqlc/queries/item.sql"},
 		},
 	}
 	for _, test := range tests {

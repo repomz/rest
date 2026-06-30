@@ -58,16 +58,34 @@ type HttpServer struct {
 {{- range .Tables }}
 	{{ .Singular }}Service {{ .GoName }}Service
 {{- end }}
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "jwt") }}
+	tokenService TokenService
+{{- end }}
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "basic") }}
+	basicAuth BasicAuthConfig
+{{- end }}
 }
 
 func NewHttpServer(
 {{- range .Tables }}
 	{{ .Singular }}Service {{ .GoName }}Service,
 {{- end }}
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "jwt") }}
+	tokenService TokenService,
+{{- end }}
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "basic") }}
+basicAuth BasicAuthConfig,
+{{- end }}
 ) HttpServer {
 	return HttpServer{
 {{- range .Tables }}
 		{{ .Singular }}Service: {{ .Singular }}Service,
+{{- end }}
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "jwt") }}
+		tokenService: tokenService,
+{{- end }}
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "basic") }}
+		basicAuth: basicAuth,
 {{- end }}
 	}
 }
@@ -87,6 +105,13 @@ import (
 {{- end }}
 	"{{ .Module }}/internal/app/domain"
 )
+{{- end }}
+
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "jwt") }}
+type TokenService interface {
+	GenerateToken(user domain.{{ .Features.Auth.UserModel }}) (string, string, error)
+	GetUser(token string) (domain.{{ .Features.Auth.UserModel }}, error)
+}
 {{- end }}
 
 {{ range .Tables }}
@@ -337,10 +362,32 @@ func (fake{{ $.Table.GoName }}Service) {{ .Name }}(ctx context.Context, params d
 }
 {{ end }}
 
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "jwt") }}
+type fake{{ .Table.GoName }}TokenService struct{}
+
+func (fake{{ .Table.GoName }}TokenService) GenerateToken(user domain.{{ .Features.Auth.UserModel }}) (string, string, error) {
+	return "token", "", nil
+}
+
+func (fake{{ .Table.GoName }}TokenService) GetUser(token string) (domain.{{ .Features.Auth.UserModel }}, error) {
+	return domain.{{ .Features.Auth.UserModel }}{}, nil
+}
+{{- end }}
+
 func test{{ .Table.GoName }}HandlersRouter() *mux.Router {
 	httpServer := NewHttpServer(
 {{- range .Tables }}
+{{- if eq .Name $.Table.Name }}
 		fake{{ .GoName }}Service{},
+{{- else }}
+		nil,
+{{- end }}
+{{- end }}
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "jwt") }}
+		fake{{ .Table.GoName }}TokenService{},
+{{- end }}
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "basic") }}
+		BasicAuthConfig{},
 {{- end }}
 	)
 	router := mux.NewRouter()

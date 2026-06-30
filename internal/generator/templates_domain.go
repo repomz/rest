@@ -236,11 +236,15 @@ func (r {{ .Table.GoName }}Repo) Create{{ .Table.GoName }}(ctx context.Context, 
 	if err := item.Validate(); err != nil {
 		return domain.{{ .Table.GoName }}{}, err
 	}
+	{{- if eq .Table.CreateArg "single" }}
+	created, err := r.query.Create{{ .Table.GoName }}(ctx, {{ with index .Table.CreateCols 0 }}{{ .DBValue }}{{ end }})
+	{{- else }}
 	created, err := r.query.Create{{ .Table.GoName }}(ctx, db.Create{{ .Table.GoName }}Params{
 {{- range .Table.CreateCols }}
 		{{ .GoName }}: {{ .DBValue }},
 {{- end }}
 	})
+	{{- end }}
 	if err != nil {
 		return domain.{{ .Table.GoName }}{}, fmt.Errorf("failed to create {{ lower .Table.GoName }}: %w", err)
 	}

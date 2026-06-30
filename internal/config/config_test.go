@@ -21,6 +21,12 @@ func TestGenerateCopiesCanonicalYAMLFiles(t *testing.T) {
 		if err != nil || entry.IsDir() || filepath.Ext(path) != ".yaml" {
 			return err
 		}
+		if filepath.Base(path) == "auth_rest.yaml" {
+			if _, err := os.Stat(filepath.Join(dir, "auth_rest.yaml")); !os.IsNotExist(err) {
+				t.Fatalf("auth_rest.yaml must not be created by rest init")
+			}
+			return nil
+		}
 		want, err := configtemplates.Files.ReadFile(path)
 		if err != nil {
 			return err
@@ -44,7 +50,7 @@ func TestGeneratedConfigsKeepDocumentation(t *testing.T) {
 	if err := Generate(dir); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"rest.yaml", "sqlc_rest.yaml", "mongo_rest.yaml", "auth_rest.yaml"} {
+	for _, name := range []string{"rest.yaml", "sqlc_rest.yaml", "mongo_rest.yaml"} {
 		content, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
@@ -96,19 +102,27 @@ func TestFutureFeatureConfigsAreValidContracts(t *testing.T) {
 	assertMongoIndexesReferenceExistingFields(t, mongo)
 
 	auth := readEmbeddedYAMLMap(t, "auth_rest.yaml")
-	for _, key := range []string{"version", "identity", "endpoints", "authentication", "password", "authorization", "cookies", "features"} {
+	for _, key := range []string{"version", "identity", "endpoints", "authentication", "authorization"} {
 		requireMapKey(t, auth, key)
 	}
 	if _, exists := auth["auth"]; exists {
 		t.Fatal("auth_rest.yaml must not wrap settings in a duplicate auth.enabled section")
 	}
 	identity := requireMapValue(t, auth, "identity")
-	if identity["provider"] == "" || identity["model"] == "" {
-		t.Fatal("auth identity provider and model are required")
+	for _, key := range []string{"model", "table", "id_field", "username_field", "password_field", "roles_field", "claims_model"} {
+		requireMapKey(t, identity, key)
 	}
 	authentication := requireMapValue(t, auth, "authentication")
-	if len(requireSliceValue(t, authentication, "strategies")) == 0 {
-		t.Fatal("auth must define at least one authentication strategy")
+	if authentication["strategy"] != "jwt" {
+		t.Fatal("auth must define the supported JWT strategy")
+	}
+	jwt := requireMapValue(t, authentication, "jwt")
+	for _, key := range []string{"algorithm", "signing_key_env", "verification_key_file_env", "access_token_ttl", "refresh_token", "refresh_token_storage", "leeway", "header_name", "token_prefix"} {
+		requireMapKey(t, jwt, key)
+	}
+	basic := requireMapValue(t, authentication, "basic")
+	for _, key := range []string{"username_env", "password_env", "realm", "roles"} {
+		requireMapKey(t, basic, key)
 	}
 	authorization := requireMapValue(t, auth, "authorization")
 	if authorization["default_policy"] != "deny" {
@@ -116,12 +130,77 @@ func TestFutureFeatureConfigsAreValidContracts(t *testing.T) {
 	}
 }
 
+func TestGenerateAuthWritesEndpointPolicies(t *testing.T) {
+	dir := t.TempDir()
+	endpoints := []GeneratedEndpoint{
+		{Name: "CreateUser", Method: "POST", Path: "/api/users"},
+		{Name: "Health", Method: "GET", Path: "/api/health", Public: true},
+	}
+	if err := GenerateAuth(dir, endpoints); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "auth_rest.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, expected := range []string{`name: "CreateUser"`, `path: "/api/users"`, "require_auth: true", `name: "Health"`, "public: true"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("generated auth config missing %q:\n%s", expected, text)
+		}
+	}
+	for _, comment := range []string{
+		"# Active strategy: jwt or basic.",
+		"# Environment variable containing the HS256 signing key.",
+		"# Realm returned in the WWW-Authenticate challenge.",
+		"# Stable generated handler name; informational only.",
+		"# Allowed roles; [] permits any authenticated user.",
+	} {
+		if !strings.Contains(text, comment) {
+			t.Fatalf("generated auth config missing field comment %q:\n%s", comment, text)
+		}
+	}
+}
+
+func TestSyncAuthPreservesPoliciesAndAddsNewEndpoints(t *testing.T) {
+	dir := t.TempDir()
+	current := defaultAuth()
+	current.Endpoints = []AuthEndpoint{{
+		Name: "ListUsers", Method: "GET", Path: "/users",
+		RequireAuth: true, Roles: []string{"admin"},
+	}}
+	changed, err := SyncAuth(dir, &current, []GeneratedEndpoint{
+		{Name: "ListAllUsers", Method: "GET", Path: "/users"},
+		{Name: "CreateUser", Method: "POST", Path: "/users"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("expected endpoint inventory to change")
+	}
+	var loaded Auth
+	if err := readYAML(filepath.Join(dir, "auth_rest.yaml"), &loaded); err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Endpoints) != 2 {
+		t.Fatalf("endpoints = %+v", loaded.Endpoints)
+	}
+	if loaded.Endpoints[0].Name != "ListAllUsers" || len(loaded.Endpoints[0].Roles) != 1 || loaded.Endpoints[0].Roles[0] != "admin" {
+		t.Fatalf("existing policy was not preserved: %+v", loaded.Endpoints[0])
+	}
+	if !loaded.Endpoints[1].RequireAuth || loaded.Endpoints[1].Public {
+		t.Fatalf("new endpoint must be authenticated by default: %+v", loaded.Endpoints[1])
+	}
+}
+
 func TestRestConfigUsesOnlySupportedOptionalFeatures(t *testing.T) {
 	rest := readEmbeddedYAMLMap(t, "rest.yaml")
-	for _, removed := range []string{"docker-compose", "docker_compose"} {
-		if _, exists := rest[removed]; exists {
-			t.Fatalf("removed feature %q must not remain in rest.yaml", removed)
-		}
+	if _, exists := rest["docker-compose"]; exists {
+		t.Fatal("docker compose settings must live under docker.compose, not docker-compose")
+	}
+	if _, exists := rest["docker_compose"]; exists {
+		t.Fatal("docker compose settings must live under docker.compose, not docker_compose")
 	}
 	observability := requireMapValue(t, rest, "observability")
 	if _, exists := observability["tracing"]; exists {
@@ -156,6 +235,13 @@ func TestRestConfigUsesOnlySupportedOptionalFeatures(t *testing.T) {
 	docker := requireMapValue(t, rest, "docker")
 	if docker["enabled"] != true || docker["output"] == "" {
 		t.Fatal("Docker contract must define enabled and output")
+	}
+	compose := requireMapValue(t, docker, "compose")
+	if _, exists := compose["enabled"]; !exists {
+		t.Fatal("docker.compose must define an enabled switch")
+	}
+	if compose["output"] == "" {
+		t.Fatal("docker.compose must define output")
 	}
 	metrics := requireMapValue(t, observability, "metrics")
 	if _, exists := metrics["enabled"]; !exists {

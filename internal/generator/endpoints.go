@@ -31,25 +31,49 @@ type queryMeta struct {
 }
 
 func readQuerierMeta(path string) (map[string]queryMeta, error) {
-	b, err := os.ReadFile(path)
+	info, err := os.Stat(path)
 	if err != nil {
-		return nil, err
-	}
-	re := regexp.MustCompile(`(?m)^\s*([A-Z]\w+)\(ctx context\.Context(?:,\s*(\w+)\s+([^\)]+))?\)\s+(.+)$`)
-	result := map[string]queryMeta{}
-	for _, match := range re.FindAllStringSubmatch(string(b), -1) {
-		meta := queryMeta{Name: match[1], ReturnType: strings.TrimSpace(match[4])}
-		meta.ArgName = match[2]
-		if match[3] == "" {
-			meta.ArgKind = "none"
-		} else if strings.HasPrefix(match[3], "db.") || strings.HasSuffix(match[3], "Params") {
-			meta.ArgKind = "struct"
-			meta.ArgType = strings.TrimPrefix(match[3], "db.")
-		} else {
-			meta.ArgKind = "single"
-			meta.ArgType = match[3]
+		if !os.IsNotExist(err) {
+			return nil, err
 		}
-		result[meta.Name] = meta
+		dir := filepath.Dir(path)
+		if filepath.Base(path) != "querier.go" {
+			return nil, err
+		}
+		return readQuerierMeta(dir)
+	}
+	var files []string
+	if info.IsDir() {
+		matches, err := filepath.Glob(filepath.Join(path, "*.go"))
+		if err != nil {
+			return nil, err
+		}
+		files = matches
+		sort.Strings(files)
+	} else {
+		files = []string{path}
+	}
+	re := regexp.MustCompile(`(?m)^\s*(?:func\s+\([^)]+\)\s+)?([A-Z]\w+)\(ctx context\.Context(?:,\s*(\w+)\s+([^\)]+))?\)\s+(.+?)\s*\{?\s*$`)
+	result := map[string]queryMeta{}
+	for _, file := range files {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		for _, match := range re.FindAllStringSubmatch(string(b), -1) {
+			meta := queryMeta{Name: match[1], ReturnType: strings.TrimSpace(strings.TrimSuffix(match[4], "{"))}
+			meta.ArgName = match[2]
+			if match[3] == "" {
+				meta.ArgKind = "none"
+			} else if strings.HasPrefix(match[3], "db.") || strings.HasSuffix(match[3], "Params") {
+				meta.ArgKind = "struct"
+				meta.ArgType = strings.TrimPrefix(match[3], "db.")
+			} else {
+				meta.ArgKind = "single"
+				meta.ArgType = match[3]
+			}
+			result[meta.Name] = meta
+		}
 	}
 	return result, nil
 }

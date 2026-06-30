@@ -1,301 +1,67 @@
 # ==============================================================================
-# REST: AUTH (КОНТРАКТ БУДУЩЕЙ ГЕНЕРАЦИИ)
+# REST: AUTHENTICATION AND AUTHORIZATION
 # ==============================================================================
-# Включение выполняется только через auth: enable в rest.yaml.
-# Сейчас генератор проверит переключатель и сообщит, что реализация ещё недоступна.
-# Вложенные enabled-поля используют YAML boolean: true или false.
-version: "0.1.0"
+# This file is not copied by `rest init`.
+# When rest.yaml contains auth: enable, the first `rest gen` creates this file
+# and appends every generated application endpoint to the endpoints list.
+version: "0.1.0"                     # Version of this auth configuration format.
 
 # ------------------------------------------------------------------------------
-# USER IDENTITY SOURCE
+# USER IDENTITY
 # ------------------------------------------------------------------------------
-identity:
-  # Допустимые provider: sql, mongo.
-  provider: sql
-  model: User
-  source:
-    table: users
-    collection: users
-  fields:
-    id: id
-    username: email
-    password_hash: password_hash
-    roles: roles
-    status: status
-    email_verified: email_verified
-  active_statuses: [active]
-
-# ------------------------------------------------------------------------------
-# AUTH ENDPOINTS
-# ------------------------------------------------------------------------------
-# method: GET, POST, PUT, PATCH, DELETE. public: true не требует авторизации.
-endpoints:
-  base_path: /auth
-  register:
-    enabled: true
-    method: POST
-    path: /register
-    public: true
-  login:
-    enabled: true
-    method: POST
-    path: /login
-    public: true
-  refresh:
-    enabled: true
-    method: POST
-    path: /refresh
-    public: true
-  logout:
-    enabled: true
-    method: POST
-    path: /logout
-    public: false
-  logout_all:
-    enabled: true
-    method: POST
-    path: /logout-all
-    public: false
-  me:
-    enabled: true
-    method: GET
-    path: /me
-    public: false
-  verify_email:
-    enabled: false
-    method: POST
-    path: /verify-email
-    public: true
-  request_password_reset:
-    enabled: false
-    method: POST
-    path: /password-reset/request
-    public: true
-  confirm_password_reset:
-    enabled: false
-    method: POST
-    path: /password-reset/confirm
-    public: true
+identity:                              # Maps authentication data to the generated user model.
+  model: User                         # Generated Go model used as the authenticated identity.
+  table: users                        # Database table that stores users.
+  id_field: id                        # Field used as the unique user identifier.
+  username_field: username            # Field used as login name in signup/signin requests.
+  password_field: password            # Field storing the password hash.
+  roles_field: roles                  # Field containing user roles for authorization.
+  claims_model: User                  # Generated model used to fill UserClaims; keep User unless you need a custom claims source.
 
 # ------------------------------------------------------------------------------
 # AUTHENTICATION
 # ------------------------------------------------------------------------------
-authentication:
-  default_strategy: jwt
-  strategies:
-    - type: jwt
-      enabled: true
-      algorithm: RS256                # Варианты: HS256, RS256, ES256.
-      issuer: myapp
-      audiences: [myapp-api]
-      clock_skew: 30s
+authentication:                        # Selects and configures the request authentication mechanism.
+  strategy: jwt                       # Active strategy: jwt or basic.
 
-      access_token:
-        duration: 15m
-        # Для RS256/ES256 используются пути из env. Для HS256 используется secret_env.
-        private_key_file_env: JWT_PRIVATE_KEY_FILE
-        public_key_file_env: JWT_PUBLIC_KEY_FILE
-        secret_env: ""
+  # Used when strategy: jwt.
+  jwt:                                # JWT settings; ignored when strategy is basic.
+    algorithm: HS256                  # Signature algorithm for generated tokens; currently HS256.
+    signing_key_env: JWT_SIGNING_KEY  # Environment variable containing the HS256 signing key.
+    verification_key_file_env: JWT_VERIFICATION_KEY_FILE # Reserved for asymmetric JWT verification; leave as-is for HS256.
+    issuer: myapp                     # Expected standard JWT "iss" claim; empty disables this check.
+    audience: myapp-api               # Expected standard JWT "aud" claim; empty disables this check.
+    access_token_ttl: 15m             # Access token lifetime used for the JWT ExpiresAt claim.
+    refresh_token: false              # true also returns a refresh_token from signin.
+    refresh_token_storage: context    # Where refresh tokens are expected to be stored: context or client.
+    leeway: 30s                       # Allowed clock difference when checking "exp" and "nbf".
+    header_name: Authorization        # HTTP header containing the token.
+    token_prefix: Bearer              # Prefix before the token value in the header.
 
-      refresh_token:
-        enabled: true
-        duration: 168h
-        rotation: true
-        reuse_detection: true
-        revoke_on_logout: true
-        revoke_all_on_password_change: true
-        token_bytes: 64
-        # В хранилище записывается только hash refresh-токена.
-        storage:
-          provider: sql               # Варианты: sql, mongo.
-          table: auth_refresh_tokens
-          collection: auth_refresh_tokens
-          hash_algorithm: sha256
-          cleanup_interval: 1h
-
-      claims:
-        subject_field: id
-        include: [email, roles]
-        include_jti: true
-
-      transport:
-        type: bearer                  # Варианты: bearer, cookie.
-        header: Authorization
-        scheme: Bearer
-
-    - type: basic
-      enabled: false
-      credentials_source: database    # Варианты: database, htpasswd, ldap.
-      username_field: email
-      password_field: password_hash
-      htpasswd_file_env: BASIC_AUTH_HTPASSWD_FILE
-      ldap:
-        url_env: LDAP_URL
-        bind_dn_env: LDAP_BIND_DN
-        bind_password_env: LDAP_BIND_PASSWORD
-        user_base_dn: ""
-        user_filter: "(mail={{username}})"
-
-    - type: api_key
-      enabled: false
-      location: header                # Варианты: header, query, cookie.
-      header_name: X-API-Key
-      query_parameter: api_key
-      cookie_name: api_key
-      key_prefix: sk_live_
-      key_bytes: 32
-      storage:
-        provider: sql
-        table: auth_api_keys
-        collection: auth_api_keys
-        hash_algorithm: sha256
-      rotation:
-        enabled: true
-        overlap_duration: 24h
-
-# ------------------------------------------------------------------------------
-# PASSWORDS
-# ------------------------------------------------------------------------------
-password:
-  algorithm: argon2id                 # Варианты: argon2id, bcrypt.
-  bcrypt:
-    cost: 12
-  argon2id:
-    memory_kib: 65536
-    iterations: 3
-    parallelism: 2
-    salt_bytes: 16
-    key_bytes: 32
-  policy:
-    minimum_length: 12
-    maximum_length: 128
-    require_uppercase: false
-    require_lowercase: true
-    require_number: true
-    require_special: false
-  password_history:
-    enabled: false
-    count: 5
+  # Used when strategy: basic. Credentials are read from environment variables.
+  basic:                              # Basic Auth settings; ignored when strategy is jwt.
+    username_env: BASIC_AUTH_USERNAME # Environment variable containing the expected username.
+    password_env: BASIC_AUTH_PASSWORD # Environment variable containing the expected password.
+    realm: Restricted                 # Realm returned in the WWW-Authenticate challenge.
+    roles: []                         # Roles assigned to a successfully authenticated user.
 
 # ------------------------------------------------------------------------------
 # AUTHORIZATION
 # ------------------------------------------------------------------------------
-authorization:
-  enabled: true
-  type: rbac                          # Сейчас планируется: rbac.
-  default_policy: deny                # Варианты: deny, allow; рекомендуется deny.
-  role_claim: roles
-  roles:
-    - name: admin
-      permissions: ["*:*"]
-    - name: user
-      permissions: ["profile:read:self", "profile:update:self"]
-  endpoint_permissions:
-    - method: GET
-      path: /auth/me
-      require_any: ["profile:read:self"]
-    - method: POST
-      path: /auth/logout-all
-      require_any: ["profile:update:self"]
-  public_endpoints:
-    # Эти пути объединяются с endpoint-ами, у которых public: true.
-    - method: GET
-      path: /
-    - method: GET
-      path: /swagger/openapi.yaml
-    - method: GET
-      path: /swagger/index.html
+authorization:                         # Controls default access and role-based authorization.
+  default_policy: deny                # Policy for endpoints absent from this file: deny or allow.
+  role_claim: roles                   # JWT claim containing an array of role names.
 
 # ------------------------------------------------------------------------------
-# COOKIES AND CSRF
+# GENERATED ENDPOINT POLICIES
 # ------------------------------------------------------------------------------
-cookies:
-  enabled: false
-  access_token_name: access_token
-  refresh_token_name: refresh_token
-  secure: true
-  http_only: true
-  same_site: strict                   # Варианты: strict, lax, none.
-  domain: ""
-  path: /
-  csrf:
-    enabled: true
-    header_name: X-CSRF-Token
-    cookie_name: csrf_token
-
-# ------------------------------------------------------------------------------
-# ADDITIONAL SECURITY FEATURES
-# ------------------------------------------------------------------------------
-features:
-  email_verification:
-    enabled: false
-    required_for_login: true
-    token_duration: 24h
-    token_bytes: 32
-    storage:
-      provider: sql
-      table: auth_email_verification_tokens
-      collection: auth_email_verification_tokens
-      hash_algorithm: sha256
-
-  password_reset:
-    enabled: false
-    token_duration: 1h
-    token_bytes: 32
-    invalidate_sessions: true
-    storage:
-      provider: sql
-      table: auth_password_reset_tokens
-      collection: auth_password_reset_tokens
-      hash_algorithm: sha256
-
-  email:
-    provider: smtp                    # Сейчас планируется: smtp.
-    from_address: no-reply@example.com
-    public_app_url: https://example.com
-    smtp:
-      host_env: SMTP_HOST
-      port_env: SMTP_PORT
-      username_env: SMTP_USERNAME
-      password_env: SMTP_PASSWORD
-      tls: true
-    templates:
-      verification: templates/auth/verify_email.html
-      password_reset: templates/auth/password_reset.html
-
-  rate_limiting:
-    enabled: true
-    backend: memory                   # Варианты: memory, redis.
-    redis_url_env: REDIS_URL
-    key: ip_and_username              # Варианты: ip, username, ip_and_username.
-    login:
-      attempts: 5
-      window: 15m
-      block_duration: 15m
-    refresh:
-      attempts: 30
-      window: 1m
-
-  session_management:
-    enabled: true
-    max_sessions_per_user: 5
-    track_ip: true
-    track_user_agent: true
-    idle_timeout: 24h
-    absolute_timeout: 720h
-
-  audit:
-    enabled: true
-    events:
-      - login_succeeded
-      - login_failed
-      - logout
-      - token_refreshed
-      - password_changed
-      - password_reset
-      - api_key_created
-      - api_key_revoked
-    storage:
-      provider: logging               # Варианты: logging, sql, mongo.
-      table: auth_audit_log
-      collection: auth_audit_log
+# public: true bypasses authentication.
+# roles: [] permits any authenticated user; a non-empty list permits matching roles.
+# Each generated item contains:
+#   name: generated handler name, informational only.
+#   method: HTTP method used together with path as the rule key.
+#   path: full route including http.base_path.
+#   public: whether unauthenticated requests are allowed.
+#   require_auth: whether the selected strategy must authenticate the request.
+#   roles: roles allowed after authentication.
+endpoints: []                         # Generated endpoint access rules; existing rules are preserved.

@@ -94,3 +94,32 @@ func TestRemoveGeneratedMigrationPreservesUserMigration(t *testing.T) {
 		t.Fatalf("user-managed migration was removed: %v", err)
 	}
 }
+
+func TestDockerComposeTemplateIncludesAppAndPostgres(t *testing.T) {
+	data := renderData{
+		Features: FeatureOptions{
+			Build: BuildFeatures{
+				DBName: "myapp_db", DBUser: "app_user", DBPassword: "app_password", DBOptions: "sslmode=disable",
+			},
+			Docker: DockerFeatures{
+				Output: "Dockerfile", Port: 8080,
+			},
+		},
+	}
+	rendered, err := renderTemplateForTest(t, "docker-compose.yml", dockerComposeTemplate, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(rendered)
+	for _, expected := range []string{
+		"services:",
+		"app:",
+		"postgres:",
+		`DB_DSN: "postgres://app_user:app_password@postgres:5432/myapp_db?sslmode=disable"`,
+		"pg_isready -U app_user -d myapp_db",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("docker compose template missing %q:\n%s", expected, text)
+		}
+	}
+}

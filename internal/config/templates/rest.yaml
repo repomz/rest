@@ -55,8 +55,8 @@ http:
 # ------------------------------------------------------------------------------
 # DATA SOURCES AND AUTHORIZATION
 # ------------------------------------------------------------------------------
-# Детальные настройки находятся в sqlc_rest.yaml, mongo_rest.yaml и auth_rest.yaml.
-# MongoDB и auth описаны как будущие контракты и пока не генерируются.
+# Детальные настройки находятся в sqlc_rest.yaml и mongo_rest.yaml.
+# При auth: enable файл auth_rest.yaml создаётся первым rest gen после обнаружения endpoint-ов.
 sql: enable
 auto_sqlc: enable                    # При rest gen автоматически выполняет: sqlc generate -f <sqlc_path>.
                                       # Требуется установленный sqlc: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest.
@@ -107,12 +107,15 @@ openapi:
   spec_path: /swagger/openapi.yaml    # HTTP route, не файл на диске.
 
 # ------------------------------------------------------------------------------
-# DOCKER (без docker-compose)
+# DOCKER
 # ------------------------------------------------------------------------------
 docker:
   enabled: true
   output: Dockerfile
   dockerignore_output: .dockerignore
+  compose:
+    enabled: false                    # true/enable создаёт docker-compose.yml рядом с Dockerfile.
+    output: docker-compose.yml
   build_image: golang:1.24-alpine
   runtime_image: alpine:3.21
   binary: app

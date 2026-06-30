@@ -30,6 +30,18 @@ func (g Generator) Generate(configDir string) error {
 		return err
 	}
 	ctx := NewContext(bundle)
+	fingerprint, err := generationFingerprint(ctx)
+	if err != nil {
+		return err
+	}
+	unchanged, err := generationUnchanged(ctx.ProjectDir, fingerprint)
+	if err != nil {
+		return err
+	}
+	if unchanged {
+		fmt.Fprintln(os.Stdout, "No configuration changes detected; no code generation is required.")
+		return nil
+	}
 	hasEnabledFeature := false
 	for _, feature := range g.features {
 		if feature.Enabled(ctx) {
@@ -57,15 +69,29 @@ func (g Generator) Generate(configDir string) error {
 	if err := runGoModTidy(ctx.ProjectDir); err != nil {
 		return err
 	}
+	authConfigChanged := false
+	if bundle.Rest.Auth.Bool() {
+		endpoints, err := discoverAuthEndpoints(ctx)
+		if err != nil {
+			return err
+		}
+		authConfigChanged, err = config.SyncAuth(ctx.ConfigDir, bundle.Auth, endpoints)
+		if err != nil {
+			return err
+		}
+		if authConfigChanged {
+			fmt.Fprintf(os.Stdout, "Updated %s. Configure endpoint access and run `rest gen` again.\n", filepath.Join(ctx.ConfigDir, "auth_rest.yaml"))
+		}
+	}
+	if err := saveGenerationFingerprint(ctx.ProjectDir, fingerprint); err != nil {
+		return err
+	}
 	return nil
 }
 
 func validateConfig(bundle config.Bundle) error {
 	if bundle.Rest.Mongo.Bool() {
 		return fmt.Errorf("mongo generation is not implemented yet")
-	}
-	if bundle.Rest.Auth.Bool() {
-		return fmt.Errorf("auth generation is not implemented yet")
 	}
 	if language := strings.ToLower(bundle.Rest.Language); language != "" && language != "golang" && language != "go" {
 		return fmt.Errorf("unsupported language %q", bundle.Rest.Language)
@@ -146,7 +172,7 @@ func validateConfig(bundle config.Bundle) error {
 			return fmt.Errorf("unsupported metrics label %q", label)
 		}
 	}
-	if bundle.Rest.Docker.Enabled.Bool() {
+	if bundle.Rest.Docker.Enabled.Bool() || bundle.Rest.Docker.Compose.Enabled.Bool() {
 		for name, value := range map[string]string{
 			"docker.healthcheck.interval": bundle.Rest.Docker.Healthcheck.Interval,
 			"docker.healthcheck.timeout":  bundle.Rest.Docker.Healthcheck.Timeout,
@@ -157,6 +183,9 @@ func validateConfig(bundle config.Bundle) error {
 			if _, err := time.ParseDuration(value); err != nil {
 				return fmt.Errorf("%s must be a duration: %w", name, err)
 			}
+		}
+		if bundle.Rest.Docker.Compose.Enabled.Bool() && bundle.Rest.Docker.Compose.Output == "" {
+			return fmt.Errorf("docker.compose.output is required when docker.compose.enabled is enabled")
 		}
 		if bundle.Rest.Docker.Port < 1 || bundle.Rest.Docker.Port > 65535 {
 			return fmt.Errorf("docker.port must be between 1 and 65535")
@@ -209,6 +238,49 @@ func validateConfig(bundle config.Bundle) error {
 			}
 		}
 	}
+	if bundle.Auth != nil {
+		strategy := strings.ToLower(bundle.Auth.Authentication.Strategy)
+		if strategy != "jwt" && strategy != "basic" {
+			return fmt.Errorf("unsupported auth strategy %q", bundle.Auth.Authentication.Strategy)
+		}
+		if strategy == "jwt" {
+			algorithm := strings.ToUpper(bundle.Auth.Authentication.JWT.Algorithm)
+			if algorithm != "HS256" {
+				return fmt.Errorf("authentication.jwt.algorithm must be HS256 for generated signin token issuing")
+			}
+			if algorithm == "HS256" && bundle.Auth.Authentication.JWT.SigningKeyEnv == "" {
+				return fmt.Errorf("authentication.jwt.signing_key_env is required for HS256")
+			}
+			if bundle.Auth.Authentication.JWT.Leeway != "" {
+				if _, err := time.ParseDuration(bundle.Auth.Authentication.JWT.Leeway); err != nil {
+					return fmt.Errorf("authentication.jwt.leeway must be a Go duration: %w", err)
+				}
+			}
+			if bundle.Auth.Authentication.JWT.AccessTokenTTL == "" {
+				return fmt.Errorf("authentication.jwt.access_token_ttl is required")
+			}
+			if _, err := time.ParseDuration(bundle.Auth.Authentication.JWT.AccessTokenTTL); err != nil {
+				return fmt.Errorf("authentication.jwt.access_token_ttl must be a Go duration: %w", err)
+			}
+			if bundle.Auth.Authentication.JWT.HeaderName == "" || bundle.Auth.Authentication.JWT.TokenPrefix == "" {
+				return fmt.Errorf("authentication.jwt.header_name and token_prefix are required")
+			}
+		}
+		if strategy == "basic" && (bundle.Auth.Authentication.Basic.UsernameEnv == "" || bundle.Auth.Authentication.Basic.PasswordEnv == "") {
+			return fmt.Errorf("authentication.basic.username_env and password_env are required")
+		}
+		if bundle.Auth.Authorization.DefaultPolicy != "" && bundle.Auth.Authorization.DefaultPolicy != "deny" && bundle.Auth.Authorization.DefaultPolicy != "allow" {
+			return fmt.Errorf("authorization.default_policy must be deny or allow")
+		}
+		for _, endpoint := range bundle.Auth.Endpoints {
+			if endpoint.Method == "" || endpoint.Path == "" {
+				return fmt.Errorf("auth endpoints require method and path")
+			}
+			if endpoint.Public && endpoint.RequireAuth {
+				return fmt.Errorf("auth endpoint %s %s cannot be public and require_auth", endpoint.Method, endpoint.Path)
+			}
+		}
+	}
 	return nil
 }
 
@@ -252,6 +324,10 @@ func ensureModuleRequirements(goMod string, rest config.Rest) error {
 	text := string(content)
 	requirements := map[string]string{}
 	requirements["github.com/joho/godotenv"] = "v1.5.1"
+	if rest.Auth.Bool() {
+		requirements["github.com/golang-jwt/jwt"] = "v3.2.2+incompatible"
+		requirements["golang.org/x/crypto"] = "v0.36.0"
+	}
 	if rest.Logging.Enabled.Bool() {
 		requirements["go.uber.org/zap"] = "v1.27.0"
 	}
@@ -270,6 +346,64 @@ func ensureModuleRequirements(goMod string, rest config.Rest) error {
 	sort.Strings(missing)
 	text += "\nrequire (\n" + strings.Join(missing, "\n") + "\n)\n"
 	return os.WriteFile(goMod, []byte(text), 0o644)
+}
+
+func discoverAuthEndpoints(ctx Context) ([]config.GeneratedEndpoint, error) {
+	if ctx.Config.SQL == nil {
+		return nil, fmt.Errorf("auth endpoint discovery requires SQLC generation")
+	}
+	sqlcPath := resolveSQLCPath(ctx.ConfigDir, ctx.Config.SQL.SQLC.Path)
+	discovered, err := generator.DiscoverEndpoints(sqlcPath)
+	if err != nil {
+		return nil, err
+	}
+	endpoints := []config.GeneratedEndpoint{
+		{Name: "Root", Method: "GET", Path: routePath(ctx.Config.Rest.HTTP.BasePath, "/"), Public: true},
+	}
+	if ctx.Config.Rest.HTTP.Health.Enabled.Bool() {
+		endpoints = append(endpoints, config.GeneratedEndpoint{Name: "Health", Method: "GET", Path: routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.HTTP.Health.Path), Public: true})
+	}
+	if ctx.Config.Rest.Observability.Metrics.Enabled.Bool() {
+		endpoints = append(endpoints, config.GeneratedEndpoint{Name: "Metrics", Method: "GET", Path: routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.Observability.Metrics.Path), Public: true})
+	}
+	if ctx.Config.Rest.OpenAPI.Enabled.Bool() {
+		endpoints = append(endpoints, config.GeneratedEndpoint{Name: "OpenAPISpec", Method: "GET", Path: routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.OpenAPI.SpecPath), Public: true})
+	}
+	if ctx.Config.Rest.OpenAPI.Enabled.Bool() && ctx.Config.Rest.OpenAPI.WithUI.Bool() {
+		endpoints = append(endpoints, config.GeneratedEndpoint{Name: "OpenAPIUI", Method: "GET", Path: routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.OpenAPI.UIPath), Public: true})
+	}
+	for _, endpoint := range discovered {
+		if authStrategy(ctx) == "jwt" && isAuthIdentityEndpoint(ctx, endpoint.Path) {
+			continue
+		}
+		endpoints = append(endpoints, config.GeneratedEndpoint{
+			Name: endpoint.Name, Method: endpoint.Method,
+			Path: routePath(ctx.Config.Rest.HTTP.BasePath, endpoint.Path),
+		})
+	}
+	if ctx.Config.Rest.Auth.Bool() {
+		endpoints = append(endpoints,
+			config.GeneratedEndpoint{Name: "SignUp", Method: "POST", Path: routePath(ctx.Config.Rest.HTTP.BasePath, "/signup"), Public: true},
+			config.GeneratedEndpoint{Name: "SignIn", Method: "POST", Path: routePath(ctx.Config.Rest.HTTP.BasePath, "/signin"), Public: true},
+		)
+	}
+	return endpoints, nil
+}
+
+func authStrategy(ctx Context) string {
+	if ctx.Config.Auth == nil || ctx.Config.Auth.Authentication.Strategy == "" {
+		return "jwt"
+	}
+	return strings.ToLower(ctx.Config.Auth.Authentication.Strategy)
+}
+
+func isAuthIdentityEndpoint(ctx Context, path string) bool {
+	table := "users"
+	if ctx.Config.Auth != nil && ctx.Config.Auth.Identity.Table != "" {
+		table = ctx.Config.Auth.Identity.Table
+	}
+	base := "/" + strings.Trim(table, "/")
+	return path == base || strings.HasPrefix(path, base+"/")
 }
 
 func defaultValue(value, fallback string) string {
@@ -396,6 +530,7 @@ func (SQLFeature) Generate(ctx Context) error {
 				Health:                ctx.Config.Rest.HTTP.Health.Enabled.Bool(),
 				HealthPath:            ctx.Config.Rest.HTTP.Health.Path,
 			},
+			Auth: authFeatures(ctx.Config),
 			Logging: generator.LoggingFeatures{
 				Enabled:    ctx.Config.Rest.Logging.Enabled.Bool(),
 				Library:    ctx.Config.Rest.Logging.Library,
@@ -438,6 +573,8 @@ func (SQLFeature) Generate(ctx Context) error {
 				Enabled:            ctx.Config.Rest.Docker.Enabled.Bool(),
 				Output:             ctx.Config.Rest.Docker.Output,
 				DockerignoreOutput: ctx.Config.Rest.Docker.DockerignoreOutput,
+				Compose:            ctx.Config.Rest.Docker.Compose.Enabled.Bool(),
+				ComposeOutput:      ctx.Config.Rest.Docker.Compose.Output,
 				BuildImage:         ctx.Config.Rest.Docker.BuildImage,
 				RuntimeImage:       ctx.Config.Rest.Docker.RuntimeImage,
 				Binary:             ctx.Config.Rest.Docker.Binary,

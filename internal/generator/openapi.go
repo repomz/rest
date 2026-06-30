@@ -14,18 +14,21 @@ type openAPISchema struct {
 }
 
 type openAPIOperation struct {
-	Method      string
-	Path        string
-	Name        string
-	Tag         string
-	Params      []endpointParam
-	BodySchema  string
-	Response    openAPISchema
-	BadRequest  bool
-	NotFound    bool
-	ServerError bool
-	ContentType string
-	Description string
+	Method       string
+	Path         string
+	Name         string
+	Tag          string
+	Params       []endpointParam
+	BodySchema   string
+	Response     openAPISchema
+	BadRequest   bool
+	Unauthorized bool
+	Forbidden    bool
+	NotFound     bool
+	ServerError  bool
+	ContentType  string
+	Description  string
+	Security     []string
 }
 
 func buildOpenAPISpec(module string, tables []table, features FeatureOptions) string {
@@ -44,7 +47,13 @@ func buildOpenAPISpec(module string, tables []table, features FeatureOptions) st
 	fmt.Fprintf(&b, "  - url: %q\n", serverURL)
 	b.WriteString("tags:\n")
 	b.WriteString("  - name: system\n")
+	if features.Auth.Enabled && strings.EqualFold(features.Auth.Strategy, "jwt") {
+		b.WriteString("  - name: auth\n")
+	}
 	for _, tbl := range tables {
+		if features.Auth.Enabled && strings.EqualFold(features.Auth.Strategy, "jwt") && isAuthIdentityTable(tbl, features.Auth) {
+			continue
+		}
 		fmt.Fprintf(&b, "  - name: %s\n", tbl.Name)
 	}
 	b.WriteString("paths:\n")
@@ -66,6 +75,12 @@ func writeOpenAPIOperation(b *strings.Builder, operation openAPIOperation) {
 	fmt.Fprintf(b, "      tags: [%s]\n", operation.Tag)
 	if operation.Description != "" {
 		fmt.Fprintf(b, "      summary: %s\n", operation.Description)
+	}
+	if len(operation.Security) > 0 {
+		b.WriteString("      security:\n")
+		for _, scheme := range operation.Security {
+			fmt.Fprintf(b, "        - %s: []\n", scheme)
+		}
 	}
 	params := openAPIParams(operation)
 	if len(params) > 0 {
@@ -90,6 +105,12 @@ func writeOpenAPIOperation(b *strings.Builder, operation openAPIOperation) {
 	writeOpenAPIResponse(b, "200", "Successful response", operation.ContentType, operation.Response)
 	if operation.BadRequest {
 		writeOpenAPIErrorResponse(b, "400", "Invalid request")
+	}
+	if operation.Unauthorized {
+		writeOpenAPIErrorResponse(b, "401", "Unauthorized")
+	}
+	if operation.Forbidden {
+		writeOpenAPIErrorResponse(b, "403", "Forbidden")
 	}
 	if operation.NotFound {
 		writeOpenAPIErrorResponse(b, "404", "Resource not found")
@@ -128,6 +149,12 @@ func collectOpenAPIOperations(tables []table, features FeatureOptions) []openAPI
 		Method: "GET", Path: applicationPath(features.HTTP.BasePath, "/"), Name: "GetAPIStatus", Tag: "system",
 		Response: openAPISchema{Type: "string"}, ContentType: "text/plain", Description: "API status",
 	}}
+	if features.Auth.Enabled && strings.EqualFold(features.Auth.Strategy, "jwt") {
+		result = append(result,
+			openAPIOperation{Method: "POST", Path: applicationPath(features.HTTP.BasePath, "/signup"), Name: "SignUp", Tag: "auth", BodySchema: "AuthRequest", Response: openAPISchema{Ref: "SuccessResponse"}, BadRequest: true, ServerError: true, Description: "Register a user"},
+			openAPIOperation{Method: "POST", Path: applicationPath(features.HTTP.BasePath, "/signin"), Name: "SignIn", Tag: "auth", BodySchema: "AuthRequest", Response: openAPISchema{Ref: "TokenResponse"}, BadRequest: true, ServerError: true, Description: "Authenticate and issue JWT token"},
+		)
+	}
 	if features.HTTP.Health {
 		result = append(result, openAPIOperation{Method: "GET", Path: applicationPath(features.HTTP.BasePath, features.HTTP.HealthPath), Name: "GetHealth", Tag: "system", Response: openAPISchema{Ref: "HealthResponse"}, Description: "Application health"})
 	}
@@ -143,15 +170,18 @@ func collectOpenAPIOperations(tables []table, features FeatureOptions) []openAPI
 		)
 	}
 	for _, tbl := range tables {
+		if features.Auth.Enabled && strings.EqualFold(features.Auth.Strategy, "jwt") && isAuthIdentityTable(tbl, features.Auth) {
+			continue
+		}
 		responseRef := openAPISchema{Ref: tbl.GoName + "Response"}
 		if tbl.Queries.GetAll {
-			result = append(result, openAPIOperation{Method: "GET", Path: applicationPath(features.HTTP.BasePath, tbl.RouteBase), Name: "GetAll" + tbl.GoPlural, Tag: tbl.Name, Response: openAPISchema{Type: "array", Items: &responseRef}, ServerError: true})
+			result = append(result, protectOpenAPIOperation(openAPIOperation{Method: "GET", Path: applicationPath(features.HTTP.BasePath, tbl.RouteBase), Name: "GetAll" + tbl.GoPlural, Tag: tbl.Name, Response: openAPISchema{Type: "array", Items: &responseRef}, ServerError: true}, features))
 		}
 		if tbl.Queries.Create {
-			result = append(result, openAPIOperation{Method: "POST", Path: applicationPath(features.HTTP.BasePath, tbl.RouteBase), Name: "Create" + tbl.GoName, Tag: tbl.Name, BodySchema: tbl.GoName + "Request", Response: responseRef, BadRequest: true, ServerError: true})
+			result = append(result, protectOpenAPIOperation(openAPIOperation{Method: "POST", Path: applicationPath(features.HTTP.BasePath, tbl.RouteBase), Name: "Create" + tbl.GoName, Tag: tbl.Name, BodySchema: tbl.GoName + "Request", Response: responseRef, BadRequest: true, ServerError: true}, features))
 		}
 		if tbl.Queries.DeleteAll {
-			result = append(result, openAPIOperation{Method: "DELETE", Path: applicationPath(features.HTTP.BasePath, tbl.RouteBase), Name: "DeleteAll" + tbl.GoPlural, Tag: tbl.Name, Response: openAPISchema{Ref: "DeletedResponse"}, ServerError: true})
+			result = append(result, protectOpenAPIOperation(openAPIOperation{Method: "DELETE", Path: applicationPath(features.HTTP.BasePath, tbl.RouteBase), Name: "DeleteAll" + tbl.GoPlural, Tag: tbl.Name, Response: openAPISchema{Ref: "DeletedResponse"}, ServerError: true}, features))
 		}
 		for _, endpoint := range tbl.Endpoints {
 			operation := openAPIOperation{Method: endpoint.Method, Path: endpoint.Path, Name: endpoint.Name, Tag: tbl.Name, Params: endpoint.Params, BadRequest: len(endpoint.Params) > 0, ServerError: true}
@@ -171,13 +201,13 @@ func collectOpenAPIOperations(tables []table, features FeatureOptions) []openAPI
 				operation.Response = openAPISchemaFromGoType(endpoint.ResponseType)
 			}
 			operation.Path = applicationPath(features.HTTP.BasePath, operation.Path)
-			result = append(result, operation)
+			result = append(result, protectOpenAPIOperation(operation, features))
 		}
 		if tbl.Queries.GetByID {
-			result = append(result, openAPIOperation{Method: "GET", Path: applicationPath(features.HTTP.BasePath, tbl.RouteBase+"/{id}"), Name: "Get" + tbl.GoName + "ByID", Tag: tbl.Name, Params: []endpointParam{{Name: "id", JSONName: "id", Source: "path", GoType: "uuid.UUID", Required: true}}, Response: responseRef, BadRequest: true, NotFound: true, ServerError: true})
+			result = append(result, protectOpenAPIOperation(openAPIOperation{Method: "GET", Path: applicationPath(features.HTTP.BasePath, tbl.RouteBase+"/{id}"), Name: "Get" + tbl.GoName + "ByID", Tag: tbl.Name, Params: []endpointParam{{Name: "id", JSONName: "id", Source: "path", GoType: "uuid.UUID", Required: true}}, Response: responseRef, BadRequest: true, NotFound: true, ServerError: true}, features))
 		}
 		if tbl.Queries.Delete {
-			result = append(result, openAPIOperation{Method: "DELETE", Path: applicationPath(features.HTTP.BasePath, tbl.RouteBase+"/{id}"), Name: "Delete" + tbl.GoName, Tag: tbl.Name, Params: []endpointParam{{Name: "id", JSONName: "id", Source: "path", GoType: "uuid.UUID", Required: true}}, Response: openAPISchema{Ref: "DeletedResponse"}, BadRequest: true, ServerError: true})
+			result = append(result, protectOpenAPIOperation(openAPIOperation{Method: "DELETE", Path: applicationPath(features.HTTP.BasePath, tbl.RouteBase+"/{id}"), Name: "Delete" + tbl.GoName, Tag: tbl.Name, Params: []endpointParam{{Name: "id", JSONName: "id", Source: "path", GoType: "uuid.UUID", Required: true}}, Response: openAPISchema{Ref: "DeletedResponse"}, BadRequest: true, ServerError: true}, features))
 		}
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -189,16 +219,64 @@ func collectOpenAPIOperations(tables []table, features FeatureOptions) []openAPI
 	return result
 }
 
+func protectOpenAPIOperation(operation openAPIOperation, features FeatureOptions) openAPIOperation {
+	if !features.Auth.Enabled {
+		return operation
+	}
+	key := strings.ToUpper(operation.Method) + " " + operation.Path
+	policy, ok := features.Auth.Policies[key]
+	if ok && policy.Public {
+		return operation
+	}
+	if !ok && strings.EqualFold(features.Auth.DefaultPolicy, "allow") {
+		return operation
+	}
+	if strings.EqualFold(features.Auth.Strategy, "basic") {
+		operation.Security = []string{"basicAuth"}
+	} else {
+		operation.Security = []string{"bearerAuth"}
+	}
+	operation.Unauthorized = true
+	if len(policy.Roles) > 0 {
+		operation.Forbidden = true
+	}
+	return operation
+}
+
 func writeOpenAPIComponents(b *strings.Builder, tables []table, features FeatureOptions) {
 	b.WriteString("components:\n")
+	if features.Auth.Enabled {
+		b.WriteString("  securitySchemes:\n")
+		if strings.EqualFold(features.Auth.Strategy, "basic") {
+			b.WriteString("    basicAuth:\n")
+			b.WriteString("      type: http\n")
+			b.WriteString("      scheme: basic\n")
+		} else {
+			b.WriteString("    bearerAuth:\n")
+			b.WriteString("      type: http\n")
+			b.WriteString("      scheme: bearer\n")
+			b.WriteString("      bearerFormat: JWT\n")
+		}
+	}
 	b.WriteString("  schemas:\n")
 	writeOpenAPIObjectSchema(b, "ErrorResponse", []openAPIProperty{{Name: "slug", GoType: "string", Required: true}, {Name: "error", GoType: "string"}})
 	writeOpenAPIObjectSchema(b, "SuccessResponse", []openAPIProperty{{Name: "ok", GoType: "bool", Required: true}})
 	writeOpenAPIObjectSchema(b, "DeletedResponse", []openAPIProperty{{Name: "deleted", GoType: "bool", Required: true}})
+	if features.Auth.Enabled && strings.EqualFold(features.Auth.Strategy, "jwt") {
+		writeOpenAPIObjectSchema(b, "AuthRequest", []openAPIProperty{{Name: "username", GoType: "string", Required: true}, {Name: "password", GoType: "string", Required: true}})
+		props := []openAPIProperty{{Name: "token", GoType: "string", Required: true}}
+		if features.Auth.JWTRefreshToken {
+			props = append(props, openAPIProperty{Name: "refresh_token", GoType: "string"})
+		}
+		writeOpenAPIObjectSchema(b, "TokenResponse", props)
+	}
 	if features.HTTP.Health {
 		writeOpenAPIObjectSchema(b, "HealthResponse", []openAPIProperty{{Name: "status", GoType: "string", Required: true}})
 	}
 	for _, tbl := range tables {
+		if features.Auth.Enabled && strings.EqualFold(features.Auth.Strategy, "jwt") && isAuthIdentityTable(tbl, features.Auth) {
+			continue
+		}
 		request := make([]openAPIProperty, 0, len(tbl.CreateCols))
 		for _, col := range tbl.CreateCols {
 			request = append(request, openAPIProperty{Name: col.JSONName, GoType: col.GoType, Required: col.Required})

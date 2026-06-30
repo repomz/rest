@@ -17,6 +17,31 @@ func renderFile(path, tmpl string, data renderData) error {
 	var buf bytes.Buffer
 	funcs := template.FuncMap{
 		"lower": strings.ToLower,
+		"authHandler": func(auth AuthFeatures, basePath, method, path, handler string) string {
+			if !auth.Enabled {
+				return handler
+			}
+			key := strings.ToUpper(method) + " " + applicationPath(basePath, path)
+			policy, ok := auth.Policies[key]
+			if ok && policy.Public {
+				return handler
+			}
+			if !ok && strings.EqualFold(auth.DefaultPolicy, "allow") {
+				return handler
+			}
+			if len(policy.Roles) == 0 {
+				return "httpServer.CheckAuthorizedUser(" + handler + ")"
+			}
+			quoted := make([]string, 0, len(policy.Roles))
+			for _, role := range policy.Roles {
+				quoted = append(quoted, fmt.Sprintf("%q", role))
+			}
+			return "httpServer.CheckRoles(" + handler + ", " + strings.Join(quoted, ", ") + ")"
+		},
+		"isAuthIdentityTable": isAuthIdentityTable,
+		"hasColumn": func(tbl table, name string) bool {
+			return tableHasColumn(tbl, name)
+		},
 		"hasImport": func(cols []column, name string) bool {
 			for _, col := range cols {
 				switch name {

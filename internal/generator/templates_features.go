@@ -157,6 +157,47 @@ docs
 *.md
 `
 
+const dockerComposeTemplate = `services:
+  app:
+    build:
+      context: .
+      dockerfile: {{ defaultString .Features.Docker.Output "Dockerfile" }}
+    environment:
+      HTTP_ADDR: 0.0.0.0:{{ .Features.Docker.Port }}
+      DB_DSN: "postgres://{{ defaultString .Features.Build.DBUser "app_user" }}:{{ defaultString .Features.Build.DBPassword "app_password" }}@postgres:5432/{{ defaultString .Features.Build.DBName "app_db" }}?{{ defaultString .Features.Build.DBOptions "sslmode=disable" }}"
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "jwt") }}
+      {{ .Features.Auth.JWTSecretEnv }}: change-me
+{{- end }}
+{{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "basic") }}
+      {{ .Features.Auth.BasicUsernameEnv }}: admin
+      {{ .Features.Auth.BasicPasswordEnv }}: change-me
+{{- end }}
+    ports:
+      - "{{ .Features.Docker.Port }}:{{ .Features.Docker.Port }}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: {{ defaultString .Features.Build.DBName "app_db" }}
+      POSTGRES_USER: {{ defaultString .Features.Build.DBUser "app_user" }}
+      POSTGRES_PASSWORD: {{ defaultString .Features.Build.DBPassword "app_password" }}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ defaultString .Features.Build.DBUser "app_user" }} -d {{ defaultString .Features.Build.DBName "app_db" }}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
+`
+
 const gitignoreTemplate = `# rest:begin
 bin/
 .cache/

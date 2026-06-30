@@ -113,6 +113,7 @@ type Docker struct {
 	Enabled            Enabled           `yaml:"enabled"`
 	Output             string            `yaml:"output"`
 	DockerignoreOutput string            `yaml:"dockerignore_output"`
+	Compose            DockerCompose     `yaml:"compose"`
 	BuildImage         string            `yaml:"build_image"`
 	RuntimeImage       string            `yaml:"runtime_image"`
 	Binary             string            `yaml:"binary"`
@@ -120,6 +121,10 @@ type Docker struct {
 	User               string            `yaml:"user"`
 	CGOEnabled         bool              `yaml:"cgo_enabled"`
 	Healthcheck        DockerHealthcheck `yaml:"healthcheck"`
+}
+type DockerCompose struct {
+	Enabled Enabled `yaml:"enabled"`
+	Output  string  `yaml:"output"`
 }
 type DockerHealthcheck struct {
 	Enabled  Enabled `yaml:"enabled"`
@@ -202,4 +207,64 @@ type Bundle struct {
 	Dir  string
 	Rest Rest
 	SQL  *SQL
+	Auth *Auth
+}
+
+type Auth struct {
+	Version        string             `yaml:"version"`
+	Identity       AuthIdentity       `yaml:"identity"`
+	Authentication AuthAuthentication `yaml:"authentication"`
+	Authorization  AuthAuthorization  `yaml:"authorization"`
+	Endpoints      []AuthEndpoint     `yaml:"endpoints"`
+}
+
+type AuthIdentity struct {
+	Model         string `yaml:"model"`
+	Table         string `yaml:"table"`
+	IDField       string `yaml:"id_field"`
+	UsernameField string `yaml:"username_field"`
+	PasswordField string `yaml:"password_field"`
+	RolesField    string `yaml:"roles_field"`
+	ClaimsModel   string `yaml:"claims_model"`
+}
+
+type AuthAuthentication struct {
+	Strategy string    `yaml:"strategy"`
+	JWT      AuthJWT   `yaml:"jwt"`
+	Basic    AuthBasic `yaml:"basic"`
+}
+
+type AuthJWT struct {
+	Algorithm              string `yaml:"algorithm"`
+	SigningKeyEnv          string `yaml:"signing_key_env"`
+	VerificationKeyFileEnv string `yaml:"verification_key_file_env"`
+	Issuer                 string `yaml:"issuer"`
+	Audience               string `yaml:"audience"`
+	AccessTokenTTL         string `yaml:"access_token_ttl"`
+	RefreshToken           bool   `yaml:"refresh_token"`
+	RefreshTokenStorage    string `yaml:"refresh_token_storage"`
+	Leeway                 string `yaml:"leeway"`
+	HeaderName             string `yaml:"header_name"`
+	TokenPrefix            string `yaml:"token_prefix"`
+}
+
+type AuthBasic struct {
+	UsernameEnv string   `yaml:"username_env"`
+	PasswordEnv string   `yaml:"password_env"`
+	Realm       string   `yaml:"realm"`
+	Roles       []string `yaml:"roles"`
+}
+
+type AuthAuthorization struct {
+	DefaultPolicy string `yaml:"default_policy"`
+	RoleClaim     string `yaml:"role_claim"`
+}
+
+type AuthEndpoint struct {
+	Name        string   `yaml:"name"`
+	Method      string   `yaml:"method"`
+	Path        string   `yaml:"path"`
+	Public      bool     `yaml:"public"`
+	RequireAuth bool     `yaml:"require_auth"`
+	Roles       []string `yaml:"roles"`
 }

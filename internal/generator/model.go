@@ -12,11 +12,51 @@ type Options struct {
 
 type FeatureOptions struct {
 	HTTP    HTTPFeatures
+	Auth    AuthFeatures
 	Logging LoggingFeatures
 	OpenAPI OpenAPIFeatures
 	Build   BuildFeatures
 	Metrics MetricsFeatures
 	Docker  DockerFeatures
+}
+
+type AuthFeatures struct {
+	Enabled             bool
+	Strategy            string
+	UserModel           string
+	UserTable           string
+	UserIDField         string
+	UserIDGoName        string
+	UsernameField       string
+	UsernameGoName      string
+	PasswordField       string
+	PasswordGoName      string
+	RolesField          string
+	RolesGoName         string
+	ClaimsModel         string
+	JWTAlgorithm        string
+	JWTSecretEnv        string
+	JWTPublicKeyFileEnv string
+	JWTIssuer           string
+	JWTAudience         string
+	JWTAccessTokenTTL   string
+	JWTRefreshToken     bool
+	JWTRefreshStorage   string
+	JWTLeeway           string
+	JWTHeader           string
+	JWTScheme           string
+	BasicUsernameEnv    string
+	BasicPasswordEnv    string
+	BasicRealm          string
+	BasicRoles          []string
+	RoleClaim           string
+	DefaultPolicy       string
+	Policies            map[string]AuthPolicy
+}
+
+type AuthPolicy struct {
+	Public bool
+	Roles  []string
 }
 
 type BuildFeatures struct {
@@ -120,6 +160,8 @@ type DockerFeatures struct {
 	Enabled            bool
 	Output             string
 	DockerignoreOutput string
+	Compose            bool
+	ComposeOutput      string
 	BuildImage         string
 	RuntimeImage       string
 	Binary             string
@@ -149,6 +191,7 @@ type table struct {
 	RouteBase  string
 	Columns    []column
 	CreateCols []column
+	CreateArg  string
 	Endpoints  []endpoint
 	Queries    querySet
 }
