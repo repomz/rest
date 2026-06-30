@@ -49,30 +49,40 @@ func runInit(args []string) error {
 	if err != nil {
 		return err
 	}
-	if options.withExample {
+	switch options.example {
+	case "sql":
 		if err := sqlcconfig.ValidateExample("."); err != nil {
 			return err
 		}
-	} else {
+	case "mongo":
+	default:
 		if err := sqlcconfig.ValidateProject("."); err != nil {
 			return err
 		}
 	}
 	configDir := "rest_config"
-	if options.withExample {
+	switch options.example {
+	case "sql":
 		if err := config.GenerateForExample(configDir); err != nil {
 			return err
 		}
-	} else {
+	case "mongo":
+		if err := config.GenerateForMongoExample(configDir); err != nil {
+			return err
+		}
+	default:
 		if err := config.GenerateForSQLC(configDir); err != nil {
 			return err
 		}
 	}
-	if options.withExample {
+	switch options.example {
+	case "sql":
 		if err := sqlcconfig.GenerateExample("."); err != nil {
 			return err
 		}
-	} else {
+	case "mongo":
+		return nil
+	default:
 		if err := sqlcconfig.RemoveExample("."); err != nil {
 			return err
 		}
@@ -84,7 +94,7 @@ func runInit(args []string) error {
 }
 
 type initOptions struct {
-	withExample bool
+	example string
 }
 
 func parseInitOptions(args []string) (initOptions, error) {
@@ -92,7 +102,16 @@ func parseInitOptions(args []string) (initOptions, error) {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--example":
-			options.withExample = true
+			i++
+			if i >= len(args) {
+				return initOptions{}, fmt.Errorf("--example requires sql or mongo")
+			}
+			switch args[i] {
+			case "sql", "mongo":
+				options.example = args[i]
+			default:
+				return initOptions{}, fmt.Errorf("--example supports only sql or mongo")
+			}
 		default:
 			return initOptions{}, fmt.Errorf("unknown argument %q", args[i])
 		}
@@ -220,7 +239,7 @@ func parseUpdateOptions(args []string) (updateOptions, error) {
 }
 
 func usageError() error {
-	return fmt.Errorf("usage: rest init [--example] | rest gen | rest update [--version vX.Y.Z] [--force] | rest changelog [--version vX.Y.Z] | rest version")
+	return fmt.Errorf("usage: rest init [--example sql|mongo] | rest gen | rest update [--version vX.Y.Z] [--force] | rest changelog [--version vX.Y.Z] | rest version")
 }
 
 func currentVersion() string {

@@ -17,14 +17,14 @@ func TestRunRejectsLegacyGenerateCommand(t *testing.T) {
 }
 
 func TestParseInitOptions(t *testing.T) {
-	got, err := parseInitOptions([]string{"--example"})
+	got, err := parseInitOptions([]string{"--example", "sql"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.withExample {
+	if got.example != "sql" {
 		t.Fatalf("unexpected init options: %+v", got)
 	}
-	for _, args := range [][]string{{"--config", "rest_config"}, {"--path", "."}, {"--sqlc"}} {
+	for _, args := range [][]string{{"--config", "rest_config"}, {"--path", "."}, {"--sqlc"}, {"--example"}, {"--example", "bad"}} {
 		if _, err := parseInitOptions(args); err == nil {
 			t.Fatalf("expected unknown argument error for %v", args)
 		}
@@ -129,8 +129,8 @@ func TestRunInitModes(t *testing.T) {
 			},
 		},
 		{
-			name: "example",
-			args: []string{"--example"},
+			name: "sql example",
+			args: []string{"--example", "sql"},
 			want: []string{
 				"rest_config/rest.yaml",
 				"rest_config/rest_mongo/rest_cheatsheet.yaml",
@@ -147,6 +147,25 @@ func TestRunInitModes(t *testing.T) {
 				"rest_sqlc/rest_sqlc.yaml",
 				"rest_sqlc/schema/item.sql",
 				"rest_sqlc/queries/item.sql",
+			},
+		},
+		{
+			name: "mongo example",
+			args: []string{"--example", "mongo"},
+			want: []string{
+				"rest_config/rest.yaml",
+				"rest_config/rest_sqlc.yaml",
+				"rest_config/mongo_rest.yaml",
+				"rest_config/rest_mongo/rest_cheatsheet.yaml",
+				"rest_config/rest_mongo/rest_user_example.yaml",
+				"rest_config/rest_mongo/item.yaml",
+			},
+			wantAbsent: []string{
+				"rest_config/auth_rest.yaml",
+				"rest_sqlc/rest_sqlc.yaml",
+				"rest_sqlc_example/rest_sqlc.yaml",
+				"sqlc/sqlc.yaml",
+				"sqlc_example/schema/studies.sql",
 			},
 		},
 	}

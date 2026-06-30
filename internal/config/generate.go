@@ -22,12 +22,17 @@ func GenerateForExample(dir string) error {
 	return generate(dir, configModeExample)
 }
 
+func GenerateForMongoExample(dir string) error {
+	return generate(dir, configModeMongoExample)
+}
+
 type configMode int
 
 const (
 	configModeDefault configMode = iota
 	configModeSQLC
 	configModeExample
+	configModeMongoExample
 )
 
 func generate(dir string, mode configMode) error {
@@ -88,11 +93,62 @@ func configFiles(mode configMode) ([]configFile, error) {
 				content = []byte(strings.Replace(string(content), "  sqlc_path: ../rest_sqlc/rest_sqlc.yaml", "  sqlc_path: ../rest_sqlc_example/rest_sqlc.yaml", 1))
 			}
 		}
+		if mode == configModeMongoExample && filepath.Base(path) == "rest.yaml" {
+			text := string(content)
+			for old, replacement := range map[string]string{
+				"sql: enable":                     "sql: disable",
+				"auto_sqlc: enable":               "auto_sqlc: disable",
+				"mongo: disable":                  "mongo: enable",
+				"module: github.com/repomz/myapp": "module: github.com/repomz/mongo-example",
+			} {
+				text = strings.Replace(text, old, replacement, 1)
+			}
+			text = strings.Replace(text, "  env:\n    enabled: false", "  env:\n    enabled: true", 1)
+			content = []byte(text)
+		}
 		files = append(files, configFile{name: filepath.ToSlash(path), content: content})
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	if mode == configModeMongoExample {
+		files = append(files, configFile{name: "rest_mongo/item.yaml", content: []byte(mongoExampleContract)})
+	}
 	return files, nil
 }
+
+const mongoExampleContract = `# ==============================================================================
+# REST: MONGODB ITEM EXAMPLE
+# ==============================================================================
+version: "0.1.0"
+
+models:
+  - name: Item
+    collection: items
+    timestamps: true
+    fields:
+      - name: id
+        type: object_id
+        bson: _id
+        json: id
+        primary: true
+        generated: true
+
+      - name: title
+        type: string
+        required: true
+
+      - name: description
+        type: string
+
+      - name: status
+        type: string
+        required: true
+        default: draft
+        enum: [draft, published, archived]
+
+      - name: tags
+        type: "[]string"
+        default: []
+`

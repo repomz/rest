@@ -46,10 +46,18 @@ from Conventional Commits.
 
 ## Quick Start
 
-Generate a standalone example project:
+Generate a standalone SQL example project:
 
 ```bash
-rest init --example
+rest init --example sql
+rest gen
+go test ./...
+```
+
+Generate a standalone MongoDB example project:
+
+```bash
+rest init --example mongo
 rest gen
 go test ./...
 ```
@@ -67,7 +75,8 @@ rest gen
 | Command | Description |
 | --- | --- |
 | `rest init` | Create `rest_config/*.yaml` and a customizable `rest_sqlc/` project skeleton |
-| `rest init --example` | Create a standalone `rest_sqlc_example/` project |
+| `rest init --example sql` | Create a standalone `rest_sqlc_example/` project |
+| `rest init --example mongo` | Create a standalone MongoDB example contract |
 | `rest gen` | Generate the REST application |
 | `rest update` | Update the CLI from GitHub Releases |
 | `rest changelog` | Print the latest GitHub Release notes |

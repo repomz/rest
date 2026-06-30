@@ -40,6 +40,39 @@ func TestE2EInitSQLCGenerateAndTestGeneratedProject(t *testing.T) {
 	runGeneratedGoTest(t, projectDir)
 }
 
+func TestE2EInitMongoExampleGenerateAndTestGeneratedProject(t *testing.T) {
+	projectDir := filepath.Join(t.TempDir(), "mongo-app")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withWorkingDir(t, projectDir)
+	if err := run([]string{"init", "--example", "mongo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"gen"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"cmd/main.go",
+		"docs/swagger.yaml",
+		".env.example",
+	} {
+		if _, err := os.Stat(filepath.Join(projectDir, path)); err != nil {
+			t.Fatalf("expected generated Mongo example file %s: %v", path, err)
+		}
+	}
+	swagger, err := os.ReadFile(filepath.Join(projectDir, "docs", "swagger.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"/items:", "/items/{id}:", "ItemRequest:", "ItemResponse:"} {
+		if !strings.Contains(string(swagger), expected) {
+			t.Fatalf("Mongo example swagger missing %q:\n%s", expected, swagger)
+		}
+	}
+	runGeneratedGoTest(t, projectDir)
+}
+
 func patchE2ERestConfig(t *testing.T, path string) {
 	t.Helper()
 	content, err := os.ReadFile(path)
@@ -160,7 +193,7 @@ func runGeneratedGoTest(t *testing.T, projectDir string) {
 	t.Helper()
 	cmd := exec.Command("go", "test", "./...")
 	cmd.Dir = projectDir
-	cmd.Env = append(os.Environ(), "GOWORK=off")
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOMODCACHE="+filepath.Join(os.TempDir(), "rest-go-mod"))
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output

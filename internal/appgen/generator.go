@@ -362,6 +362,9 @@ func ensureModuleRequirements(goMod string, rest config.Rest) error {
 		requirements["github.com/golang-jwt/jwt"] = "v3.2.2+incompatible"
 		requirements["golang.org/x/crypto"] = "v0.36.0"
 	}
+	if rest.Mongo.Bool() {
+		requirements["go.mongodb.org/mongo-driver"] = "v1.17.3"
+	}
 	if rest.Logging.Enabled.Bool() {
 		requirements["go.uber.org/zap"] = "v1.27.0"
 	}
@@ -740,6 +743,9 @@ func goCommandEnv() []string {
 	env := os.Environ()
 	if os.Getenv("GOCACHE") == "" {
 		env = append(env, "GOCACHE="+filepath.Join(os.TempDir(), "rest-go-build"))
+	}
+	if os.Getenv("GOMODCACHE") == "" {
+		env = append(env, "GOMODCACHE="+filepath.Join(os.TempDir(), "rest-go-mod"))
 	}
 	return env
 }

@@ -91,6 +91,30 @@ func TestGenerateForExampleUsesExampleSQLCPath(t *testing.T) {
 	}
 }
 
+func TestGenerateForMongoExampleEnablesMongoAndWritesActiveContract(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "rest_config")
+	if err := GenerateForMongoExample(dir); err != nil {
+		t.Fatal(err)
+	}
+	rest, err := os.ReadFile(filepath.Join(dir, "rest.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(rest)
+	for _, expected := range []string{"sql: disable", "auto_sqlc: disable", "mongo: enable", "  env:\n    enabled: true"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("mongo example rest.yaml missing %q:\n%s", expected, text)
+		}
+	}
+	contract, err := os.ReadFile(filepath.Join(dir, "rest_mongo", "item.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contract), "collection: items") {
+		t.Fatalf("mongo example contract is not active item contract:\n%s", contract)
+	}
+}
+
 func TestFutureFeatureConfigsAreValidContracts(t *testing.T) {
 	mongo := readEmbeddedYAMLMap(t, "mongo_rest.yaml")
 	for _, key := range []string{"version", "connection", "engine", "mongo", "generation"} {
