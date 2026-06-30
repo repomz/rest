@@ -54,7 +54,7 @@ func (g Generator) Generate(configDir string) error {
 		}
 	}
 	if !hasEnabledFeature {
-		return fmt.Errorf("no implemented generation feature is enabled; set sqlc.enable to enable in rest_sqlc.yaml after preparing SQLC files; Mongo code generation is not implemented yet")
+		return fmt.Errorf("no implemented generation feature is enabled; set sqlc.enable in rest_sqlc.yaml or mongo: enable in rest.yaml")
 	}
 	if err := runAutoSQLC(ctx); err != nil {
 		return err

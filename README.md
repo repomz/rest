@@ -7,9 +7,9 @@
 [![sqlc](https://img.shields.io/badge/sqlc-supported-5C6BC0)](https://sqlc.dev/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-`rest` is a Go CLI for generating REST applications on top of SQLC and PostgreSQL.
+`rest` is a Go CLI for generating REST applications on top of SQLC/PostgreSQL and MongoDB contracts.
 
-It reads SQL schemas, SQLC queries, and generated Go code, then creates a layered application with domain models, repositories, services, HTTP transport, OpenAPI, Docker, logging, metrics, tests, and curl examples.
+For SQL projects, it reads SQL schemas, SQLC queries, and generated Go code, then creates a layered application with domain models, repositories, services, HTTP transport, OpenAPI, Docker, logging, metrics, tests, and curl examples. For MongoDB projects, it reads `rest_mongo/*.yaml` contracts and can generate a runnable MongoDB HTTP API with OpenAPI documentation.
 
 ## Installation
 
@@ -83,7 +83,7 @@ rest gen
 | `rest changelog --version vX.Y.Z` | Print notes for a specific release |
 | `rest version` | Print the installed version |
 
-By default, `rest gen` runs:
+For SQL projects, `rest gen` runs:
 
 ```bash
 sqlc generate -f <sqlc_path>
@@ -98,11 +98,13 @@ go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 
 To run SQLC manually, set `auto_sqlc: disable` in `rest_config/rest.yaml`, execute `sqlc generate -f <sqlc_path>`, and then run `rest gen`.
 
+For MongoDB projects, `rest gen` reads `rest_config/rest_mongo/*.yaml` contracts and generates a MongoDB HTTP API and OpenAPI document.
+
 ### Authentication and authorization
 
 Set `auth: enable` in `rest_config/rest.yaml`. The first `rest gen` generates the application and creates `rest_config/auth_rest.yaml` with every discovered endpoint. Choose JWT authentication (generated signin currently issues HS256 tokens) or Basic Auth, configure `public`, `require_auth`, and `roles`, then run `rest gen` again to generate authentication and RBAC route guards. New SQLC endpoints are merged into the auth file without losing existing policies.
 
-When REST, SQLC, schema, query, and auth configuration inputs have not changed, `rest gen` exits without regenerating code.
+When REST, SQLC, Mongo, schema, query, and auth configuration inputs have not changed, `rest gen` exits without regenerating code.
 
 ## Generated Application
 
@@ -114,6 +116,8 @@ internal/app/services
 internal/app/transport/httpmodels
 internal/app/transport/httpserver
 ```
+
+MongoDB projects currently generate a compact runnable HTTP application in `cmd/main.go`, plus `docs/swagger.yaml` and optional environment files.
 
 Optional output includes `Dockerfile`, `docker-compose.yml`, `.env.example`, `Makefile`, `docs/swagger.yaml`, GitHub Actions workflows, curl examples, logging, metrics, and a Goose initialization migration.
 
@@ -142,9 +146,9 @@ Pull requests should stay focused, include tests for new generator behavior, and
 
 ## Status
 
-Available: SQLC/PostgreSQL generation, OpenAPI, Docker/Docker Compose, zap logging, metrics, handler tests, curl documentation, graceful shutdown, CI/CD workflow templates, safe reload, and self-update.
+Available: SQLC/PostgreSQL generation, MongoDB example generation, MongoDB CRUD application generation, OpenAPI, Docker/Docker Compose for SQL projects, zap logging, metrics, handler tests, curl documentation, graceful shutdown, CI/CD workflow templates, safe reload, and self-update.
 
-Planned: MongoDB generation, plugin support, dry-run/doctor commands, and migration tooling for existing generated projects.
+Planned: full layered MongoDB generation, MongoDB auth middleware integration, plugin support, dry-run/doctor commands, and migration tooling for existing generated projects.
 
 ## License
 
