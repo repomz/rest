@@ -246,7 +246,6 @@ DEBUG_ERRORS ?= 0
 GOCACHE ?= $(CURDIR)/.cache/go-build
 GOLANGCI_LINT_VERSION ?= latest
 REST ?= rest
-REST_CONFIG ?= {{ defaultString .Features.Build.ConfigPath "rest_config" }}
 
 export
 
@@ -257,7 +256,7 @@ build:
 	go build -o $(BUILD_DIR)/$(APP_NAME) ./cmd
 
 rest-gen:
-	$(REST) gen --path $(REST_CONFIG)
+	$(REST) gen
 
 run:
 	@mkdir -p $(BUILD_DIR) && \

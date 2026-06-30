@@ -18,6 +18,7 @@ type FeatureOptions struct {
 	Build   BuildFeatures
 	Metrics MetricsFeatures
 	Docker  DockerFeatures
+	Mongo   MongoFeatures
 }
 
 type AuthFeatures struct {
@@ -72,7 +73,6 @@ type BuildFeatures struct {
 	Env              bool
 	EnvPath          string
 	GenerateLocalEnv bool
-	ConfigPath       string
 	InitDB           bool
 	InitDBPath       string
 	SafeReload       bool
@@ -173,6 +173,47 @@ type DockerFeatures struct {
 	HealthInterval     string
 	HealthTimeout      string
 	HealthRetries      int
+}
+
+type MongoFeatures struct {
+	Models []MongoModel
+}
+
+type MongoModel struct {
+	Name       string
+	Collection string
+	Embedded   bool
+	Timestamps bool
+	Fields     []MongoField
+	Methods    []MongoMethod
+}
+
+type MongoField struct {
+	Name      string
+	JSONName  string
+	Type      string
+	Required  bool
+	Primary   bool
+	Generated bool
+	ReadOnly  bool
+	WriteOnly bool
+	Enum      []string
+}
+
+type MongoMethod struct {
+	Model     string
+	Name      string
+	Operation string
+	Method    string
+	Path      string
+	Params    []MongoMethodParam
+}
+
+type MongoMethodParam struct {
+	Name     string
+	Type     string
+	Source   string
+	Required bool
 }
 
 type sqlcConfig struct {

@@ -135,6 +135,57 @@ func TestSwaggerRoutesAreServedByGeneratedHandlers(t *testing.T) {
 	}
 }
 
+func TestBuildOpenAPISpecIncludesMongoContracts(t *testing.T) {
+	features := FeatureOptions{
+		HTTP:    HTTPFeatures{BasePath: "/api"},
+		OpenAPI: OpenAPIFeatures{Enabled: true, WithUI: true, SpecPath: "/swagger/openapi.yaml", UIPath: "/swagger/index.html"},
+		Mongo: MongoFeatures{Models: []MongoModel{{
+			Name:       "Item",
+			Collection: "items",
+			Timestamps: true,
+			Fields: []MongoField{
+				{Name: "id", JSONName: "id", Type: "object_id", Primary: true, Generated: true},
+				{Name: "title", JSONName: "title", Type: "string", Required: true},
+				{Name: "status", JSONName: "status", Type: "string", Required: true, Enum: []string{"draft", "published"}},
+				{Name: "secret", JSONName: "-", Type: "string", WriteOnly: true},
+			},
+			Methods: []MongoMethod{{
+				Model: "Item", Name: "FindPublishedItems", Operation: "find_many", Method: "GET", Path: "/items/published",
+				Params: []MongoMethodParam{{Name: "status", Type: "string", Source: "query", Required: true}},
+			}},
+		}}},
+	}
+
+	spec := buildOpenAPISpec("example.test/app", nil, features)
+	var document map[string]interface{}
+	if err := yaml.Unmarshal([]byte(spec), &document); err != nil {
+		t.Fatalf("generated Mongo OpenAPI is not valid YAML: %v", err)
+	}
+	paths := mapValue(t, document, "paths")
+	for _, path := range []string{"/api/items", "/api/items/{id}", "/api/items/published"} {
+		if _, ok := paths[path]; !ok {
+			t.Fatalf("missing Mongo generated path %s:\n%s", path, spec)
+		}
+	}
+	schemas := mapValue(t, mapValue(t, document, "components"), "schemas")
+	for _, schema := range []string{"ItemRequest", "ItemResponse"} {
+		if _, ok := schemas[schema]; !ok {
+			t.Fatalf("missing Mongo schema %s:\n%s", schema, spec)
+		}
+	}
+	itemRequest := mapValue(t, schemas, "ItemRequest")
+	required := sliceValue(t, itemRequest, "required")
+	if len(required) != 2 || required[0] != "title" || required[1] != "status" {
+		t.Fatalf("unexpected Mongo request required fields: %v", required)
+	}
+	if strings.Contains(spec, "secret:") {
+		t.Fatalf("json:- Mongo field must not be exposed:\n%s", spec)
+	}
+	if !strings.Contains(spec, "enum:") || !strings.Contains(spec, `"published"`) {
+		t.Fatalf("Mongo enum was not emitted:\n%s", spec)
+	}
+}
+
 func renderTemplateForTest(t *testing.T, name, tmpl string, data renderData) ([]byte, error) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)

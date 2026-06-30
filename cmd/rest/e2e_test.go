@@ -11,14 +11,18 @@ import (
 
 func TestE2EInitSQLCGenerateAndTestGeneratedProject(t *testing.T) {
 	projectDir := filepath.Join(t.TempDir(), "app")
-	if err := run([]string{"init", "--sqlc", "--path", projectDir}); err != nil {
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	patchE2ERestConfig(t, filepath.Join(projectDir, "rest_config", "rest.yaml"), projectDir)
+	withWorkingDir(t, projectDir)
+	if err := run([]string{"init"}); err != nil {
+		t.Fatal(err)
+	}
+	patchE2ERestConfig(t, filepath.Join(projectDir, "rest_config", "rest.yaml"))
 	writeE2ESQLCInputs(t, projectDir)
 	writeE2ESQLCOutput(t, projectDir)
 
-	if err := run([]string{"gen", "--path", filepath.Join(projectDir, "rest_config")}); err != nil {
+	if err := run([]string{"gen"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
@@ -36,7 +40,7 @@ func TestE2EInitSQLCGenerateAndTestGeneratedProject(t *testing.T) {
 	runGeneratedGoTest(t, projectDir)
 }
 
-func patchE2ERestConfig(t *testing.T, path, projectDir string) {
+func patchE2ERestConfig(t *testing.T, path string) {
 	t.Helper()
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -44,7 +48,6 @@ func patchE2ERestConfig(t *testing.T, path, projectDir string) {
 	}
 	replacements := map[string]string{
 		"module: github.com/repomz/myapp": "module: example.test/e2eapp",
-		"project_path: .":                 "project_path: " + projectDir,
 		"auto_sqlc: enable":               "auto_sqlc: disable",
 	}
 	text := string(content)

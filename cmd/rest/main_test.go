@@ -10,36 +10,6 @@ import (
 	"github.com/repomz/rest/internal/selfupdate"
 )
 
-func TestParseGenPath(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		want string
-	}{
-		{name: "default", want: "rest_config"},
-		{name: "custom", args: []string{"--path", "configs/rest"}, want: "configs/rest"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := parseGenPath(test.args)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got != test.want {
-				t.Fatalf("config dir = %q, want %q", got, test.want)
-			}
-		})
-	}
-}
-
-func TestParseGenPathRejectsInvalidArguments(t *testing.T) {
-	for _, args := range [][]string{{"--path"}, {"-config", "rest_config"}, {"--out", "."}, {"-out", "."}} {
-		if _, err := parseGenPath(args); err == nil {
-			t.Fatalf("expected error for arguments %v", args)
-		}
-	}
-}
-
 func TestRunRejectsLegacyGenerateCommand(t *testing.T) {
 	if err := run([]string{"generate"}); err == nil {
 		t.Fatal("expected legacy generate command to be rejected")
@@ -47,15 +17,17 @@ func TestRunRejectsLegacyGenerateCommand(t *testing.T) {
 }
 
 func TestParseInitOptions(t *testing.T) {
-	got, err := parseInitOptions([]string{"--sqlc", "--example", "--path", "project"})
+	got, err := parseInitOptions([]string{"--example"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.path != "project" || !got.withSQLC || !got.withExample {
+	if !got.withExample {
 		t.Fatalf("unexpected init options: %+v", got)
 	}
-	if _, err := parseInitOptions([]string{"--config", "rest_config"}); err == nil {
-		t.Fatal("expected unknown argument error")
+	for _, args := range [][]string{{"--config", "rest_config"}, {"--path", "."}, {"--sqlc"}} {
+		if _, err := parseInitOptions(args); err == nil {
+			t.Fatalf("expected unknown argument error for %v", args)
+		}
 	}
 }
 
@@ -80,7 +52,7 @@ func TestParseChangelogOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.version != "v0.2.0" {
-		t.Fatalf("version = %q", got.version)
+		t.Fatalf("version = %q, want %q", got.version, "v0.2.0")
 	}
 	for _, args := range [][]string{{"--version"}, {"--force"}, {"v0.2.0"}} {
 		if _, err := parseChangelogOptions(args); err == nil {
@@ -137,29 +109,52 @@ func TestRunInitModes(t *testing.T) {
 		wantAbsent []string
 	}{
 		{
-			name:       "configs only",
-			want:       []string{"rest_config/rest.yaml", "rest_config/rest_sqlc.yaml", "rest_config/mongo_rest.yaml", "rest_config/rest_mongo/rest_cheatsheet.yaml", "rest_config/rest_mongo/rest_user_example.yaml"},
-			wantAbsent: []string{"rest_config/auth_rest.yaml", "rest_config/sqlc_rest.yaml", "sqlc/sqlc.yaml", "sqlc_example/schema/studies.sql", "rest_sqlc/rest_sqlc.yaml", "rest_sqlc_example/schema/studies.sql"},
+			name: "default",
+			want: []string{
+				"rest_config/rest.yaml",
+				"rest_config/rest_sqlc.yaml",
+				"rest_config/mongo_rest.yaml",
+				"rest_config/rest_mongo/rest_cheatsheet.yaml",
+				"rest_config/rest_mongo/rest_user_example.yaml",
+				"rest_sqlc/rest_sqlc.yaml",
+				"rest_sqlc/schema/item.sql",
+				"rest_sqlc/queries/item.sql",
+			},
+			wantAbsent: []string{
+				"rest_config/auth_rest.yaml",
+				"rest_config/sqlc_rest.yaml",
+				"sqlc/sqlc.yaml",
+				"sqlc_example/schema/studies.sql",
+				"rest_sqlc_example/schema/studies.sql",
+			},
 		},
 		{
-			name:       "sqlc",
-			args:       []string{"--sqlc"},
-			want:       []string{"rest_config/rest.yaml", "rest_config/rest_mongo/rest_cheatsheet.yaml", "rest_config/rest_mongo/rest_user_example.yaml", "rest_sqlc/rest_sqlc.yaml", "rest_sqlc/schema/item.sql", "rest_sqlc/queries/item.sql"},
-			wantAbsent: []string{"rest_config/auth_rest.yaml", "rest_config/sqlc_rest.yaml", "sqlc/sqlc.yaml", "sqlc_example/schema/studies.sql", "rest_sqlc_example/schema/studies.sql"},
-		},
-		{
-			name:       "example",
-			args:       []string{"--example"},
-			want:       []string{"rest_config/rest.yaml", "rest_config/rest_mongo/rest_cheatsheet.yaml", "rest_config/rest_mongo/rest_user_example.yaml", "rest_sqlc_example/rest_sqlc.yaml", "rest_sqlc_example/schema/studies.sql", "rest_sqlc_example/queries/studies.sql"},
-			wantAbsent: []string{"rest_config/auth_rest.yaml", "rest_config/sqlc_rest.yaml", "sqlc/sqlc.yaml", "sqlc_example/schema/studies.sql", "rest_sqlc/rest_sqlc.yaml", "rest_sqlc/schema/item.sql", "rest_sqlc/queries/item.sql"},
+			name: "example",
+			args: []string{"--example"},
+			want: []string{
+				"rest_config/rest.yaml",
+				"rest_config/rest_mongo/rest_cheatsheet.yaml",
+				"rest_config/rest_mongo/rest_user_example.yaml",
+				"rest_sqlc_example/rest_sqlc.yaml",
+				"rest_sqlc_example/schema/studies.sql",
+				"rest_sqlc_example/queries/studies.sql",
+			},
+			wantAbsent: []string{
+				"rest_config/auth_rest.yaml",
+				"rest_config/sqlc_rest.yaml",
+				"sqlc/sqlc.yaml",
+				"sqlc_example/schema/studies.sql",
+				"rest_sqlc/rest_sqlc.yaml",
+				"rest_sqlc/schema/item.sql",
+				"rest_sqlc/queries/item.sql",
+			},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			dir := t.TempDir()
-			args := append([]string{}, test.args...)
-			args = append(args, "--path", dir)
-			if err := runInit(args); err != nil {
+			withWorkingDir(t, dir)
+			if err := runInit(test.args); err != nil {
 				t.Fatal(err)
 			}
 			for _, path := range test.want {
@@ -176,22 +171,48 @@ func TestRunInitModes(t *testing.T) {
 	}
 }
 
-func TestRunInitRejectsSQLCAndExampleTogether(t *testing.T) {
-	if err := runInit([]string{"--sqlc", "--example", "--path", t.TempDir()}); err == nil {
-		t.Fatal("expected --sqlc and --example conflict")
+func TestRunInitRejectsRemovedArguments(t *testing.T) {
+	for _, args := range [][]string{{"--sqlc"}, {"--path", "."}} {
+		if err := runInit(args); err == nil {
+			t.Fatalf("expected removed init argument to be rejected: %v", args)
+		}
 	}
 }
 
 func TestRunGenValidatesYAMLBeforeGeneration(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "rest_config")
+	root := t.TempDir()
+	withWorkingDir(t, root)
+	dir := filepath.Join(root, "rest_config")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "rest.yaml"), []byte("sql: enable\nsql: disable\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := runGen([]string{"--path", dir})
+	err := runGen(nil)
 	if err == nil || !strings.Contains(err.Error(), "duplicate key") {
 		t.Fatalf("expected duplicate YAML key error, got %v", err)
 	}
+}
+
+func TestRunGenRejectsRemovedPathArgument(t *testing.T) {
+	if err := runGen([]string{"--path", "rest_config"}); err == nil {
+		t.Fatal("expected removed gen path argument to be rejected")
+	}
+}
+
+func withWorkingDir(t *testing.T, dir string) {
+	t.Helper()
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
+	})
 }

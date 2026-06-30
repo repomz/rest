@@ -66,12 +66,9 @@ rest gen
 
 | Command | Description |
 | --- | --- |
-| `rest init` | Create `rest_config/*.yaml` |
-| `rest init --sqlc` | Create a customizable `rest_sqlc/` project skeleton |
+| `rest init` | Create `rest_config/*.yaml` and a customizable `rest_sqlc/` project skeleton |
 | `rest init --example` | Create a standalone `rest_sqlc_example/` project |
-| `rest init --path path` | Initialize another directory |
 | `rest gen` | Generate the REST application |
-| `rest gen --path path` | Use another configuration directory |
 | `rest update` | Update the CLI from GitHub Releases |
 | `rest changelog` | Print the latest GitHub Release notes |
 | `rest changelog --version vX.Y.Z` | Print notes for a specific release |

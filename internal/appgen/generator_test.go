@@ -160,6 +160,61 @@ func TestValidateReferencedYAMLInputsRejectsDuplicateSQLCKeys(t *testing.T) {
 	}
 }
 
+func TestGenerateMongoOnlyOpenAPI(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "rest_config")
+	projectDir := filepath.Join(root, "app")
+	if err := config.Generate(configDir); err != nil {
+		t.Fatal(err)
+	}
+	patchFile(t, filepath.Join(configDir, "rest.yaml"), map[string]string{
+		"module: github.com/repomz/myapp": "module: example.test/mongoapi",
+		"project_path: .":                 "project_path: " + projectDir,
+		"sql: enable":                     "sql: disable",
+		"mongo: disable":                  "mongo: enable",
+	})
+	writeFile(t, filepath.Join(configDir, "rest_mongo", "item.yaml"), `
+version: "0.1.0"
+models:
+  - name: Item
+    collection: items
+    fields:
+      - name: id
+        type: object_id
+        json: id
+        primary: true
+        generated: true
+      - name: title
+        type: string
+        required: true
+methods:
+  - model: Item
+    name: FindByTitle
+    operation: find_one
+    http:
+      method: GET
+      path: /items/by-title
+    parameters:
+      - name: title
+        type: string
+        source: query
+        required: true
+`)
+	if err := New(DefaultRegistry()...).Generate(configDir); err != nil {
+		t.Fatal(err)
+	}
+	swagger, err := os.ReadFile(filepath.Join(projectDir, "docs", "swagger.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(swagger)
+	for _, expected := range []string{"/items:", "/items/{id}:", "/items/by-title:", "ItemRequest:", "ItemResponse:"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("Mongo OpenAPI output missing %q:\n%s", expected, text)
+		}
+	}
+}
+
 func minimalBundle() config.Bundle {
 	return config.Bundle{
 		Rest: config.Rest{
@@ -186,5 +241,33 @@ func minimalBundle() config.Bundle {
 				Metrics: config.Metrics{Path: "/metrics"},
 			},
 		},
+	}
+}
+
+func patchFile(t *testing.T, path string, replacements map[string]string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for old, replacement := range replacements {
+		if !strings.Contains(text, old) {
+			t.Fatalf("%s does not contain %q", path, old)
+		}
+		text = strings.Replace(text, old, replacement, 1)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.TrimPrefix(content, "\n")), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

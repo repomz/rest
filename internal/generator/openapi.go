@@ -11,6 +11,7 @@ type openAPISchema struct {
 	Type   string
 	Format string
 	Items  *openAPISchema
+	Enum   []string
 }
 
 type openAPIOperation struct {
@@ -56,6 +57,12 @@ func buildOpenAPISpec(module string, tables []table, features FeatureOptions) st
 		}
 		fmt.Fprintf(&b, "  - name: %s\n", tbl.Name)
 	}
+	for _, model := range features.Mongo.Models {
+		if model.Embedded || model.Collection == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "  - name: %s\n", model.Collection)
+	}
 	b.WriteString("paths:\n")
 	currentPath := ""
 	for _, operation := range operations {
@@ -67,6 +74,10 @@ func buildOpenAPISpec(module string, tables []table, features FeatureOptions) st
 	}
 	writeOpenAPIComponents(&b, tables, features)
 	return b.String()
+}
+
+func BuildMongoOpenAPISpec(module string, features FeatureOptions) string {
+	return buildOpenAPISpec(module, nil, features)
 }
 
 func writeOpenAPIOperation(b *strings.Builder, operation openAPIOperation) {
@@ -210,6 +221,55 @@ func collectOpenAPIOperations(tables []table, features FeatureOptions) []openAPI
 			result = append(result, protectOpenAPIOperation(openAPIOperation{Method: "DELETE", Path: applicationPath(features.HTTP.BasePath, tbl.RouteBase+"/{id}"), Name: "Delete" + tbl.GoName, Tag: tbl.Name, Params: []endpointParam{{Name: "id", JSONName: "id", Source: "path", GoType: "uuid.UUID", Required: true}}, Response: openAPISchema{Ref: "DeletedResponse"}, BadRequest: true, ServerError: true}, features))
 		}
 	}
+	for _, model := range features.Mongo.Models {
+		if model.Embedded || model.Collection == "" {
+			continue
+		}
+		responseRef := openAPISchema{Ref: model.Name + "Response"}
+		base := normalizeOpenAPIPath(model.Collection)
+		result = append(result,
+			protectOpenAPIOperation(openAPIOperation{Method: "GET", Path: applicationPath(features.HTTP.BasePath, base), Name: "GetAll" + pluralizeOpenAPIName(model.Name), Tag: model.Collection, Response: openAPISchema{Type: "array", Items: &responseRef}, ServerError: true}, features),
+			protectOpenAPIOperation(openAPIOperation{Method: "POST", Path: applicationPath(features.HTTP.BasePath, base), Name: "Create" + model.Name, Tag: model.Collection, BodySchema: model.Name + "Request", Response: responseRef, BadRequest: true, ServerError: true}, features),
+			protectOpenAPIOperation(openAPIOperation{Method: "GET", Path: applicationPath(features.HTTP.BasePath, base+"/{id}"), Name: "Get" + model.Name + "ByID", Tag: model.Collection, Params: []endpointParam{{Name: "id", JSONName: "id", Source: "path", GoType: "string", Required: true}}, Response: responseRef, BadRequest: true, NotFound: true, ServerError: true}, features),
+			protectOpenAPIOperation(openAPIOperation{Method: "PATCH", Path: applicationPath(features.HTTP.BasePath, base+"/{id}"), Name: "Update" + model.Name, Tag: model.Collection, Params: []endpointParam{{Name: "id", JSONName: "id", Source: "path", GoType: "string", Required: true}}, BodySchema: model.Name + "Request", Response: responseRef, BadRequest: true, NotFound: true, ServerError: true}, features),
+			protectOpenAPIOperation(openAPIOperation{Method: "DELETE", Path: applicationPath(features.HTTP.BasePath, base+"/{id}"), Name: "Delete" + model.Name, Tag: model.Collection, Params: []endpointParam{{Name: "id", JSONName: "id", Source: "path", GoType: "string", Required: true}}, Response: openAPISchema{Ref: "DeletedResponse"}, BadRequest: true, ServerError: true}, features),
+		)
+		for _, method := range model.Methods {
+			httpMethod := method.Method
+			if httpMethod == "" {
+				httpMethod = mongoOpenAPIHTTPMethodForOperation(method.Operation)
+			}
+			if httpMethod == "" || method.Path == "" {
+				continue
+			}
+			operation := openAPIOperation{
+				Method: strings.ToUpper(httpMethod),
+				Path:   applicationPath(features.HTTP.BasePath, normalizeOpenAPIPath(method.Path)),
+				Name:   method.Name,
+				Tag:    model.Collection,
+				Params: mongoOpenAPIParams(method.Params),
+			}
+			bodyParams := mongoOpenAPIBodyParams(method.Params)
+			if len(bodyParams) > 0 {
+				operation.BodySchema = method.Name + "Request"
+				operation.BadRequest = true
+			}
+			switch strings.ToLower(method.Operation) {
+			case "find_many", "aggregate":
+				operation.Response = openAPISchema{Type: "array", Items: &responseRef}
+			case "find_one", "update_one":
+				operation.Response = responseRef
+				operation.NotFound = strings.ToLower(method.Operation) == "find_one"
+			case "delete_one":
+				operation.Response = openAPISchema{Ref: "DeletedResponse"}
+			default:
+				operation.Response = openAPISchema{Ref: "SuccessResponse"}
+			}
+			operation.BadRequest = operation.BadRequest || len(operation.Params) > 0
+			operation.ServerError = true
+			result = append(result, protectOpenAPIOperation(operation, features))
+		}
+	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].Path == result[j].Path {
 			return result[i].Method < result[j].Method
@@ -298,11 +358,33 @@ func writeOpenAPIComponents(b *strings.Builder, tables []table, features Feature
 			writeOpenAPIObjectSchema(b, endpoint.Name+"Request", props)
 		}
 	}
+	for _, model := range features.Mongo.Models {
+		request := mongoOpenAPIRequestProperties(model)
+		response := mongoOpenAPIResponseProperties(model)
+		if len(request) > 0 {
+			writeOpenAPIObjectSchema(b, model.Name+"Request", request)
+		}
+		if len(response) > 0 {
+			writeOpenAPIObjectSchema(b, model.Name+"Response", response)
+		}
+		for _, method := range model.Methods {
+			bodyParams := mongoOpenAPIBodyParams(method.Params)
+			if len(bodyParams) == 0 {
+				continue
+			}
+			props := make([]openAPIProperty, 0, len(bodyParams))
+			for _, param := range bodyParams {
+				props = append(props, openAPIProperty{Name: param.Name, Schema: mongoOpenAPISchema(param.Type), Required: param.Required})
+			}
+			writeOpenAPIObjectSchema(b, method.Name+"Request", props)
+		}
+	}
 }
 
 type openAPIProperty struct {
 	Name     string
 	GoType   string
+	Schema   openAPISchema
 	Required bool
 }
 
@@ -324,7 +406,11 @@ func writeOpenAPIObjectSchema(b *strings.Builder, name string, properties []open
 	b.WriteString("      properties:\n")
 	for _, property := range properties {
 		fmt.Fprintf(b, "        %s:\n", property.Name)
-		writeOpenAPITypeSchema(b, "          ", property.GoType)
+		if property.Schema.Ref != "" || property.Schema.Type != "" {
+			writeOpenAPISchema(b, "          ", property.Schema)
+		} else {
+			writeOpenAPITypeSchema(b, "          ", property.GoType)
+		}
 	}
 }
 
@@ -390,6 +476,12 @@ func writeOpenAPISchema(b *strings.Builder, indent string, schema openAPISchema)
 		fmt.Fprintf(b, "%sitems:\n", indent)
 		writeOpenAPISchema(b, indent+"  ", *schema.Items)
 	}
+	if len(schema.Enum) > 0 {
+		fmt.Fprintf(b, "%senum:\n", indent)
+		for _, value := range schema.Enum {
+			fmt.Fprintf(b, "%s  - %q\n", indent, value)
+		}
+	}
 }
 
 func writeOpenAPITypeSchema(b *strings.Builder, indent, goType string) {
@@ -446,4 +538,173 @@ func applicationPath(basePath, path string) string {
 		basePath = "/" + basePath
 	}
 	return strings.TrimRight(basePath, "/") + path
+}
+
+func normalizeOpenAPIPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "/"
+	}
+	return "/" + strings.Trim(path, "/")
+}
+
+func pluralizeOpenAPIName(name string) string {
+	if strings.HasSuffix(name, "s") {
+		return name
+	}
+	if strings.HasSuffix(name, "y") && len(name) > 1 {
+		return strings.TrimSuffix(name, "y") + "ies"
+	}
+	return name + "s"
+}
+
+func mongoOpenAPIHTTPMethodForOperation(operation string) string {
+	switch strings.ToLower(operation) {
+	case "find_one", "find_many", "aggregate":
+		return "GET"
+	case "update_one":
+		return "PATCH"
+	case "delete_one":
+		return "DELETE"
+	default:
+		return ""
+	}
+}
+
+func mongoOpenAPIParams(params []MongoMethodParam) []endpointParam {
+	result := make([]endpointParam, 0, len(params))
+	for _, param := range params {
+		source := param.Source
+		if source != "path" && source != "query" {
+			continue
+		}
+		result = append(result, endpointParam{
+			Name:     param.Name,
+			JSONName: param.Name,
+			Source:   source,
+			GoType:   mongoGoType(param.Type),
+			Type:     mongoEndpointType(param.Type),
+			Required: param.Required,
+		})
+	}
+	return result
+}
+
+func mongoOpenAPIBodyParams(params []MongoMethodParam) []MongoMethodParam {
+	var result []MongoMethodParam
+	for _, param := range params {
+		if param.Source == "body" {
+			result = append(result, param)
+		}
+	}
+	return result
+}
+
+func mongoOpenAPIRequestProperties(model MongoModel) []openAPIProperty {
+	var props []openAPIProperty
+	for _, field := range model.Fields {
+		if !mongoFieldVisible(field) || field.Generated || field.ReadOnly || field.Primary {
+			continue
+		}
+		props = append(props, openAPIProperty{Name: field.JSONName, Schema: mongoFieldSchema(field), Required: field.Required})
+	}
+	return props
+}
+
+func mongoOpenAPIResponseProperties(model MongoModel) []openAPIProperty {
+	var props []openAPIProperty
+	for _, field := range model.Fields {
+		if !mongoFieldVisible(field) || field.WriteOnly {
+			continue
+		}
+		props = append(props, openAPIProperty{Name: field.JSONName, Schema: mongoFieldSchema(field), Required: true})
+	}
+	if model.Timestamps {
+		props = append(props,
+			openAPIProperty{Name: "created_at", Schema: openAPISchema{Type: "string", Format: "date-time"}, Required: true},
+			openAPIProperty{Name: "updated_at", Schema: openAPISchema{Type: "string", Format: "date-time"}, Required: true},
+		)
+	}
+	return props
+}
+
+func mongoFieldVisible(field MongoField) bool {
+	return field.Name != "" && field.JSONName != "" && field.JSONName != "-"
+}
+
+func mongoFieldSchema(field MongoField) openAPISchema {
+	schema := mongoOpenAPISchema(field.Type)
+	schema.Enum = append(schema.Enum, field.Enum...)
+	return schema
+}
+
+func mongoOpenAPISchema(valueType string) openAPISchema {
+	valueType = strings.TrimSpace(valueType)
+	if strings.HasPrefix(valueType, "[]") {
+		item := mongoOpenAPISchema(strings.TrimPrefix(valueType, "[]"))
+		return openAPISchema{Type: "array", Items: &item}
+	}
+	switch valueType {
+	case "string":
+		return openAPISchema{Type: "string"}
+	case "bool":
+		return openAPISchema{Type: "boolean"}
+	case "int32":
+		return openAPISchema{Type: "integer", Format: "int32"}
+	case "int", "int64":
+		return openAPISchema{Type: "integer", Format: "int64"}
+	case "float32":
+		return openAPISchema{Type: "number", Format: "float"}
+	case "float64":
+		return openAPISchema{Type: "number", Format: "double"}
+	case "time":
+		return openAPISchema{Type: "string", Format: "date-time"}
+	case "object_id":
+		return openAPISchema{Type: "string", Format: "objectid"}
+	case "decimal128":
+		return openAPISchema{Type: "string"}
+	default:
+		if valueType == "" {
+			return openAPISchema{Type: "string"}
+		}
+		return openAPISchema{Ref: valueType + "Response"}
+	}
+}
+
+func mongoGoType(valueType string) string {
+	valueType = strings.TrimSpace(valueType)
+	if strings.HasPrefix(valueType, "[]") {
+		return "[]" + mongoGoType(strings.TrimPrefix(valueType, "[]"))
+	}
+	switch valueType {
+	case "bool":
+		return "bool"
+	case "int32":
+		return "int32"
+	case "int", "int64":
+		return "int64"
+	case "float32":
+		return "float32"
+	case "float64":
+		return "float64"
+	case "time":
+		return "time.Time"
+	default:
+		return "string"
+	}
+}
+
+func mongoEndpointType(valueType string) string {
+	switch strings.TrimSpace(valueType) {
+	case "time":
+		return "time"
+	case "int32":
+		return "int32"
+	case "int", "int64":
+		return "int"
+	case "object_id":
+		return "string"
+	default:
+		return valueType
+	}
 }

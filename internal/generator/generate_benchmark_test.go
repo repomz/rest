@@ -104,7 +104,6 @@ func benchmarkGenerateOptions(projectDir, sqlcPath string) Options {
 				HTTPPort:       8080,
 				Gitignore:      true,
 				Env:            true,
-				ConfigPath:     "rest_config",
 				InitDB:         true,
 				InitMigration:  true,
 				MigrationsPath: "internal/sql/migrations",

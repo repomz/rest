@@ -260,7 +260,7 @@ func validateConfig(bundle config.Bundle) error {
 		}
 	}
 	if bundle.Mongo != nil {
-		if engine := strings.ToLower(bundle.Mongo.Engine); engine != "" && engine != "mongo" && engine != "mongodb" {
+		if engine := strings.ToLower(bundle.Mongo.Engine); engine != "" && engine != "mongo" && engine != "mongodb" && engine != "mongo-go-driver" {
 			return fmt.Errorf("unsupported Mongo engine %q", bundle.Mongo.Engine)
 		}
 		if bundle.Mongo.Mongo.ModelsPath == "" {
@@ -443,15 +443,34 @@ type mongoContractModel struct {
 	Name       string `yaml:"name"`
 	Collection string `yaml:"collection"`
 	Embedded   bool   `yaml:"embedded"`
+	Timestamps bool   `yaml:"timestamps"`
+	Fields     []struct {
+		Name      string   `yaml:"name"`
+		Type      string   `yaml:"type"`
+		JSON      string   `yaml:"json"`
+		Required  bool     `yaml:"required"`
+		Primary   bool     `yaml:"primary"`
+		Generated bool     `yaml:"generated"`
+		ReadOnly  bool     `yaml:"read_only"`
+		WriteOnly bool     `yaml:"write_only"`
+		Enum      []string `yaml:"enum"`
+	} `yaml:"fields"`
 }
 
 type mongoContractMethod struct {
+	Model     string `yaml:"model"`
 	Name      string `yaml:"name"`
 	Operation string `yaml:"operation"`
 	HTTP      struct {
 		Method string `yaml:"method"`
 		Path   string `yaml:"path"`
 	} `yaml:"http"`
+	Parameters []struct {
+		Name     string `yaml:"name"`
+		Type     string `yaml:"type"`
+		Source   string `yaml:"source"`
+		Required bool   `yaml:"required"`
+	} `yaml:"parameters"`
 }
 
 func discoverMongoAuthEndpoints(ctx Context) ([]config.GeneratedEndpoint, error) {
@@ -516,6 +535,85 @@ func discoverMongoAuthEndpoints(ctx Context) ([]config.GeneratedEndpoint, error)
 		return endpoints[i].Path < endpoints[j].Path
 	})
 	return endpoints, nil
+}
+
+func discoverMongoOpenAPIModels(ctx Context) ([]generator.MongoModel, error) {
+	if ctx.Config.Mongo == nil {
+		return nil, nil
+	}
+	files, err := mongoContractFiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	modelsByName := map[string]*generator.MongoModel{}
+	var ordered []*generator.MongoModel
+	for _, path := range files {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		var contract mongoContractFile
+		if err := yaml.Unmarshal(content, &contract); err != nil {
+			return nil, fmt.Errorf("parse mongo contract %s: %w", path, err)
+		}
+		for _, model := range contract.Models {
+			if model.Name == "" {
+				continue
+			}
+			target := &generator.MongoModel{
+				Name:       model.Name,
+				Collection: model.Collection,
+				Embedded:   model.Embedded,
+				Timestamps: model.Timestamps,
+			}
+			for _, field := range model.Fields {
+				jsonName := field.JSON
+				if jsonName == "" {
+					jsonName = field.Name
+				}
+				target.Fields = append(target.Fields, generator.MongoField{
+					Name:      field.Name,
+					JSONName:  jsonName,
+					Type:      field.Type,
+					Required:  field.Required,
+					Primary:   field.Primary,
+					Generated: field.Generated,
+					ReadOnly:  field.ReadOnly,
+					WriteOnly: field.WriteOnly,
+					Enum:      field.Enum,
+				})
+			}
+			modelsByName[target.Name] = target
+			ordered = append(ordered, target)
+		}
+		for _, method := range contract.Methods {
+			target := modelsByName[method.Model]
+			if target == nil {
+				continue
+			}
+			mongoMethod := generator.MongoMethod{
+				Model:     method.Model,
+				Name:      method.Name,
+				Operation: method.Operation,
+				Method:    method.HTTP.Method,
+				Path:      method.HTTP.Path,
+			}
+			for _, param := range method.Parameters {
+				mongoMethod.Params = append(mongoMethod.Params, generator.MongoMethodParam{
+					Name:     param.Name,
+					Type:     param.Type,
+					Source:   param.Source,
+					Required: param.Required,
+				})
+			}
+			target.Methods = append(target.Methods, mongoMethod)
+		}
+	}
+	result := make([]generator.MongoModel, 0, len(ordered))
+	for _, model := range ordered {
+		result = append(result, *model)
+	}
+	return result, nil
 }
 
 func mongoContractFiles(ctx Context) ([]string, error) {
@@ -667,9 +765,9 @@ func (SQLFeature) Generate(ctx Context) error {
 	}
 	sqlcPath := ctx.Config.SQL.SQLC.Path
 	sqlcPath = resolveSQLCPath(ctx.ConfigDir, sqlcPath)
-	configPath, err := filepath.Rel(ctx.ProjectDir, ctx.ConfigDir)
+	mongoModels, err := discoverMongoOpenAPIModels(ctx)
 	if err != nil {
-		return fmt.Errorf("resolve config path from project: %w", err)
+		return err
 	}
 	options := generator.Options{
 		SQLCPath: sqlcPath,
@@ -688,7 +786,6 @@ func (SQLFeature) Generate(ctx Context) error {
 				Env:              ctx.Config.Rest.Features.Env.Enabled.Bool(),
 				EnvPath:          ctx.Config.Rest.Features.Env.Output,
 				GenerateLocalEnv: ctx.Config.Rest.Features.Env.GenerateLocalEnv,
-				ConfigPath:       configPath,
 				InitDB:           ctx.Config.Rest.Features.InitDB.Enabled.Bool(),
 				InitDBPath:       ctx.Config.Rest.Features.InitDB.Output,
 				SafeReload:       ctx.Config.Rest.SafeReload.Bool(),
@@ -786,9 +883,66 @@ func (SQLFeature) Generate(ctx Context) error {
 				HealthTimeout:      ctx.Config.Rest.Docker.Healthcheck.Timeout,
 				HealthRetries:      ctx.Config.Rest.Docker.Healthcheck.Retries,
 			},
+			Mongo: generator.MongoFeatures{Models: mongoModels},
 		},
 	}
 	return generator.Generate(options)
+}
+
+type MongoOpenAPIFeature struct{}
+
+func (MongoOpenAPIFeature) Name() string { return "mongo-openapi" }
+
+func (MongoOpenAPIFeature) Enabled(ctx Context) bool {
+	return ctx.Config.Rest.Mongo.Bool() && ctx.Config.Mongo != nil && ctx.Config.Rest.OpenAPI.Enabled.Bool() && !(SQLFeature{}).Enabled(ctx)
+}
+
+func (MongoOpenAPIFeature) Generate(ctx Context) error {
+	models, err := discoverMongoOpenAPIModels(ctx)
+	if err != nil {
+		return err
+	}
+	features := generator.FeatureOptions{
+		HTTP: generator.HTTPFeatures{
+			BasePath:   ctx.Config.Rest.HTTP.BasePath,
+			Port:       ctx.Config.Rest.HTTP.Port,
+			Health:     ctx.Config.Rest.HTTP.Health.Enabled.Bool(),
+			HealthPath: ctx.Config.Rest.HTTP.Health.Path,
+		},
+		Auth: authFeatures(ctx.Config),
+		OpenAPI: generator.OpenAPIFeatures{
+			Enabled:     ctx.Config.Rest.OpenAPI.Enabled.Bool(),
+			Output:      ctx.Config.Rest.OpenAPI.Output,
+			WithUI:      ctx.Config.Rest.OpenAPI.WithUI.Bool(),
+			Title:       ctx.Config.Rest.OpenAPI.Title,
+			Version:     ctx.Config.Rest.OpenAPI.Version,
+			Description: ctx.Config.Rest.OpenAPI.Description,
+			ServerURL:   ctx.Config.Rest.OpenAPI.ServerURL,
+			UIPath:      ctx.Config.Rest.OpenAPI.UIPath,
+			SpecPath:    ctx.Config.Rest.OpenAPI.SpecPath,
+		},
+		Build: generator.BuildFeatures{HTTPPort: ctx.Config.Rest.HTTP.Port},
+		Metrics: generator.MetricsFeatures{
+			Enabled: ctx.Config.Rest.Observability.Metrics.Enabled.Bool(),
+			Path:    ctx.Config.Rest.Observability.Metrics.Path,
+		},
+		Mongo: generator.MongoFeatures{Models: models},
+	}
+	module := ctx.Config.Rest.Module
+	if module == "" {
+		module = "generated-mongo-api"
+	}
+	output := features.OpenAPI.Output
+	if output == "" {
+		output = "docs/swagger.yaml"
+	}
+	if !filepath.IsAbs(output) {
+		output = filepath.Join(ctx.ProjectDir, output)
+	}
+	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(output, []byte(generator.BuildMongoOpenAPISpec(module, features)), 0o644)
 }
 
 func routePath(base, path string) string {
