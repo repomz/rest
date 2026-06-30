@@ -474,6 +474,18 @@ type mongoContractMethod struct {
 		Source   string `yaml:"source"`
 		Required bool   `yaml:"required"`
 	} `yaml:"parameters"`
+	Filter []struct {
+		Field string `yaml:"field"`
+		Op    string `yaml:"op"`
+		Param string `yaml:"param"`
+		Value any    `yaml:"value"`
+	} `yaml:"filter"`
+	Filters []struct {
+		Field string `yaml:"field"`
+		Op    string `yaml:"op"`
+		Param string `yaml:"param"`
+		Value any    `yaml:"value"`
+	} `yaml:"filters"`
 }
 
 func discoverMongoAuthEndpoints(ctx Context) ([]config.GeneratedEndpoint, error) {
@@ -607,6 +619,15 @@ func discoverMongoOpenAPIModels(ctx Context) ([]generator.MongoModel, error) {
 					Type:     param.Type,
 					Source:   param.Source,
 					Required: param.Required,
+				})
+			}
+			contractFilters := append(method.Filter, method.Filters...)
+			for _, filter := range contractFilters {
+				mongoMethod.Filters = append(mongoMethod.Filters, generator.MongoFilter{
+					Field: filter.Field,
+					Op:    filter.Op,
+					Param: filter.Param,
+					Value: filter.Value,
 				})
 			}
 			target.Methods = append(target.Methods, mongoMethod)

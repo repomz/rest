@@ -207,6 +207,7 @@ type MongoMethod struct {
 	Method    string
 	Path      string
 	Params    []MongoMethodParam
+	Filters   []MongoFilter
 }
 
 type MongoMethodParam struct {
@@ -214,6 +215,13 @@ type MongoMethodParam struct {
 	Type     string
 	Source   string
 	Required bool
+}
+
+type MongoFilter struct {
+	Field string
+	Op    string
+	Param string
+	Value any
 }
 
 type sqlcConfig struct {

@@ -54,8 +54,15 @@ func TestE2EInitMongoExampleGenerateAndTestGeneratedProject(t *testing.T) {
 	}
 	for _, path := range []string{
 		"cmd/main.go",
+		"internal/app/domain/document.go",
+		"internal/app/repository/mongorepo/item_repo.go",
+		"internal/app/services/item.go",
+		"internal/app/transport/httpserver/item_handlers.go",
+		"internal/app/transport/httpserver/auth_middleware.go",
 		"docs/swagger.yaml",
 		".env.example",
+		"Dockerfile",
+		".dockerignore",
 	} {
 		if _, err := os.Stat(filepath.Join(projectDir, path)); err != nil {
 			t.Fatalf("expected generated Mongo example file %s: %v", path, err)
@@ -65,12 +72,38 @@ func TestE2EInitMongoExampleGenerateAndTestGeneratedProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"/items:", "/items/{id}:", "ItemRequest:", "ItemResponse:"} {
+	for _, expected := range []string{"/items:", "/items/{id}:", "/items/by-status:", "ItemRequest:", "ItemResponse:"} {
 		if !strings.Contains(string(swagger), expected) {
 			t.Fatalf("Mongo example swagger missing %q:\n%s", expected, swagger)
 		}
 	}
 	runGeneratedGoTest(t, projectDir)
+}
+
+func TestE2EInitMongoExampleGeneratesComposeWhenEnabled(t *testing.T) {
+	projectDir := filepath.Join(t.TempDir(), "mongo-compose-app")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withWorkingDir(t, projectDir)
+	if err := run([]string{"init", "--example", "mongo"}); err != nil {
+		t.Fatal(err)
+	}
+	patchFileForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"), map[string]string{
+		"    enabled: false                    # true/enable создаёт docker-compose.yml рядом с Dockerfile.": "    enabled: true                     # true/enable создаёт docker-compose.yml рядом с Dockerfile.",
+	})
+	if err := run([]string{"gen"}); err != nil {
+		t.Fatal(err)
+	}
+	compose, err := os.ReadFile(filepath.Join(projectDir, "docker-compose.yml"))
+	if err != nil {
+		t.Fatalf("expected docker-compose.yml: %v", err)
+	}
+	for _, expected := range []string{"mongo:7", "MONGO_URI: mongodb://mongo:27017", "mongo_data:"} {
+		if !strings.Contains(string(compose), expected) {
+			t.Fatalf("Mongo compose missing %q:\n%s", expected, compose)
+		}
+	}
 }
 
 func patchE2ERestConfig(t *testing.T, path string) {
@@ -82,6 +115,24 @@ func patchE2ERestConfig(t *testing.T, path string) {
 	replacements := map[string]string{
 		"module: github.com/repomz/myapp": "module: example.test/e2eapp",
 		"auto_sqlc: enable":               "auto_sqlc: disable",
+	}
+	text := string(content)
+	for old, replacement := range replacements {
+		if !strings.Contains(text, old) {
+			t.Fatalf("%s does not contain %q", path, old)
+		}
+		text = strings.Replace(text, old, replacement, 1)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func patchFileForE2E(t *testing.T, path string, replacements map[string]string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
 	}
 	text := string(content)
 	for old, replacement := range replacements {

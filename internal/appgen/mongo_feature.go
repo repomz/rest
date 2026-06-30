@@ -30,7 +30,23 @@ func (MongoFeature) Generate(ctx Context) error {
 	}
 	swagger := generator.BuildMongoOpenAPISpec(module, features)
 	files := map[string]string{
-		"cmd/main.go": mongoMainSource(ctx, models, swagger),
+		"cmd/main.go":                                        mongoMainSource(ctx, models),
+		"internal/app/common/server/response.go":             mongoServerResponseSource(),
+		"internal/app/domain/document.go":                    mongoDomainSource(),
+		"internal/app/repository/mongorepo/filter.go":        mongoRepositoryFilterSource(),
+		"internal/app/transport/httpserver/server.go":        mongoHTTPServerSource(ctx, models),
+		"internal/app/transport/httpserver/swagger.go":       mongoSwaggerSource(ctx, swagger),
+		"internal/app/transport/httpserver/mongo_helpers.go": mongoHTTPHelpersSource(),
+	}
+	files["internal/app/transport/httpserver/auth_middleware.go"] = mongoAuthMiddlewareSource(ctx)
+	for _, model := range models {
+		if model.Embedded || model.Collection == "" {
+			continue
+		}
+		name := strings.ToLower(model.Name)
+		files["internal/app/repository/mongorepo/"+name+"_repo.go"] = mongoRepositorySource(model)
+		files["internal/app/services/"+name+".go"] = mongoServiceSource(model)
+		files["internal/app/transport/httpserver/"+name+"_handlers.go"] = mongoHandlersSource(model)
 	}
 	openAPIOutput := ctx.Config.Rest.OpenAPI.Output
 	if openAPIOutput == "" {
@@ -42,9 +58,29 @@ func (MongoFeature) Generate(ctx Context) error {
 		if envPath == "" {
 			envPath = ".env.example"
 		}
-		files[envPath] = fmt.Sprintf("MONGO_URI=mongodb://localhost:27017\nHTTP_ADDR=%s\n", mongoHTTPAddr(ctx))
+		files[envPath] = mongoEnvSource(ctx)
+	}
+	if ctx.Config.Rest.Docker.Enabled.Bool() {
+		output := ctx.Config.Rest.Docker.Output
+		if output == "" {
+			output = "Dockerfile"
+		}
+		files[output] = mongoDockerfileSource(ctx)
+		ignoreOutput := ctx.Config.Rest.Docker.DockerignoreOutput
+		if ignoreOutput == "" {
+			ignoreOutput = ".dockerignore"
+		}
+		files[ignoreOutput] = mongoDockerignoreSource()
+	}
+	if ctx.Config.Rest.Docker.Compose.Enabled.Bool() {
+		output := ctx.Config.Rest.Docker.Compose.Output
+		if output == "" {
+			output = "docker-compose.yml"
+		}
+		files[output] = mongoDockerComposeSource(ctx)
 	}
 	for path, content := range files {
+		content = strings.ReplaceAll(content, "{{MODULE}}", module)
 		target := filepath.Join(ctx.ProjectDir, filepath.FromSlash(path))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
@@ -67,61 +103,78 @@ func mongoFeatureOptions(ctx Context, models []generator.MongoModel) generator.F
 		},
 		Auth: authFeatures(ctx.Config),
 		OpenAPI: generator.OpenAPIFeatures{
-			Enabled:     ctx.Config.Rest.OpenAPI.Enabled.Bool(),
-			Output:      ctx.Config.Rest.OpenAPI.Output,
-			WithUI:      ctx.Config.Rest.OpenAPI.WithUI.Bool(),
-			Title:       ctx.Config.Rest.OpenAPI.Title,
-			Version:     ctx.Config.Rest.OpenAPI.Version,
-			Description: ctx.Config.Rest.OpenAPI.Description,
-			ServerURL:   ctx.Config.Rest.OpenAPI.ServerURL,
-			UIPath:      ctx.Config.Rest.OpenAPI.UIPath,
-			SpecPath:    ctx.Config.Rest.OpenAPI.SpecPath,
+			Enabled:         ctx.Config.Rest.OpenAPI.Enabled.Bool(),
+			Output:          ctx.Config.Rest.OpenAPI.Output,
+			WithUI:          ctx.Config.Rest.OpenAPI.WithUI.Bool(),
+			Title:           ctx.Config.Rest.OpenAPI.Title,
+			Version:         ctx.Config.Rest.OpenAPI.Version,
+			Description:     ctx.Config.Rest.OpenAPI.Description,
+			ServerURL:       ctx.Config.Rest.OpenAPI.ServerURL,
+			UIPath:          ctx.Config.Rest.OpenAPI.UIPath,
+			SpecPath:        ctx.Config.Rest.OpenAPI.SpecPath,
+			SecuritySchemes: ctx.Config.Rest.OpenAPI.SecuritySchemes,
 		},
 		Build: generator.BuildFeatures{HTTPPort: ctx.Config.Rest.HTTP.Port},
 		Metrics: generator.MetricsFeatures{
 			Enabled: ctx.Config.Rest.Observability.Metrics.Enabled.Bool(),
 			Path:    ctx.Config.Rest.Observability.Metrics.Path,
 		},
+		Docker: generator.DockerFeatures{
+			Enabled:            ctx.Config.Rest.Docker.Enabled.Bool(),
+			Output:             ctx.Config.Rest.Docker.Output,
+			DockerignoreOutput: ctx.Config.Rest.Docker.DockerignoreOutput,
+			Compose:            ctx.Config.Rest.Docker.Compose.Enabled.Bool(),
+			ComposeOutput:      ctx.Config.Rest.Docker.Compose.Output,
+			BuildImage:         ctx.Config.Rest.Docker.BuildImage,
+			RuntimeImage:       ctx.Config.Rest.Docker.RuntimeImage,
+			Binary:             ctx.Config.Rest.Docker.Binary,
+			Port:               ctx.Config.Rest.Docker.Port,
+			User:               ctx.Config.Rest.Docker.User,
+			CGOEnabled:         ctx.Config.Rest.Docker.CGOEnabled,
+			Healthcheck:        ctx.Config.Rest.Docker.Healthcheck.Enabled.Bool(),
+			HealthPath:         routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.Docker.Healthcheck.Path),
+			HealthInterval:     ctx.Config.Rest.Docker.Healthcheck.Interval,
+			HealthTimeout:      ctx.Config.Rest.Docker.Healthcheck.Timeout,
+			HealthRetries:      ctx.Config.Rest.Docker.Healthcheck.Retries,
+		},
 		Mongo: generator.MongoFeatures{Models: models},
 	}
 }
 
-func mongoMainSource(ctx Context, models []generator.MongoModel, swagger string) string {
-	var routes strings.Builder
+func mongoMainSource(ctx Context, models []generator.MongoModel) string {
+	module := ctx.Config.Rest.Module
+	if module == "" {
+		module = "generated-mongo-api"
+	}
+	var repoVars strings.Builder
+	var serviceVars strings.Builder
+	var serverFields strings.Builder
 	for _, model := range models {
 		if model.Embedded || model.Collection == "" {
 			continue
 		}
-		base := routePath(ctx.Config.Rest.HTTP.BasePath, "/"+strings.Trim(model.Collection, "/"))
-		fmt.Fprintf(&routes, "\trouter.HandleFunc(%q, listDocuments(database.Collection(%q))).Methods(http.MethodGet)\n", base, model.Collection)
-		fmt.Fprintf(&routes, "\trouter.HandleFunc(%q, createDocument(database.Collection(%q))).Methods(http.MethodPost)\n", base, model.Collection)
-		fmt.Fprintf(&routes, "\trouter.HandleFunc(%q, getDocument(database.Collection(%q))).Methods(http.MethodGet)\n", base+"/{id}", model.Collection)
-		fmt.Fprintf(&routes, "\trouter.HandleFunc(%q, updateDocument(database.Collection(%q))).Methods(http.MethodPatch)\n", base+"/{id}", model.Collection)
-		fmt.Fprintf(&routes, "\trouter.HandleFunc(%q, deleteDocument(database.Collection(%q))).Methods(http.MethodDelete)\n", base+"/{id}", model.Collection)
+		lower := strings.ToLower(model.Name[:1]) + model.Name[1:]
+		fmt.Fprintf(&repoVars, "\t%sRepo := mongorepo.New%sRepository(database.Collection(%q))\n", lower, model.Name, model.Collection)
+		fmt.Fprintf(&serviceVars, "\t%sService := services.New%sService(%sRepo)\n", lower, model.Name, lower)
+		fmt.Fprintf(&serverFields, "\t\t%sService: %sService,\n", model.Name, lower)
 	}
-	rootPath := routePath(ctx.Config.Rest.HTTP.BasePath, "/")
-	healthPath := routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.HTTP.Health.Path)
-	specPath := routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.OpenAPI.SpecPath)
-	uiPath := routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.OpenAPI.UIPath)
 	return fmt.Sprintf(`package main
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"log"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/gorilla/mux"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-)
 
-const swaggerSpec = %s
+	"%s/internal/app/repository/mongorepo"
+	"%s/internal/app/services"
+	"%s/internal/app/transport/httpserver"
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -146,19 +199,23 @@ func run() error {
 		_ = client.Disconnect(ctx)
 	}()
 	database := client.Database(%q)
+%s%s
 	router := mux.NewRouter()
-	router.HandleFunc(%q, func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	}).Methods(http.MethodGet)
-	router.HandleFunc(%q, func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	}).Methods(http.MethodGet)
-	router.HandleFunc(%q, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/yaml")
-		_, _ = w.Write([]byte(swaggerSpec))
-	}).Methods(http.MethodGet)
-	router.HandleFunc(%q, swaggerUI).Methods(http.MethodGet)
-%s
+	httpServer := httpserver.HttpServer{
+%s		BasicAuth: httpserver.BasicAuthConfig{
+			Username: env(%q, ""),
+			Password: env(%q, ""),
+			Realm:    %q,
+			Roles:    []string{%s},
+		},
+		JWTSecret:    env(%q, ""),
+		JWTHeader:    %q,
+		JWTScheme:    %q,
+		JWTIssuer:    %q,
+		JWTAudience:  %q,
+		JWTRoleClaim: %q,
+	}
+	httpServer.RegisterRoutes(router)
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", %q),
 		Handler:           router,
@@ -168,133 +225,49 @@ func run() error {
 	return server.ListenAndServe()
 }
 
-func listDocuments(collection *mongo.Collection) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-		defer cancel()
-		cursor, err := collection.Find(ctx, bson.M{})
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-		defer cursor.Close(ctx)
-		var items []bson.M
-		if err := cursor.All(ctx, &items); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-		if items == nil {
-			items = []bson.M{}
-		}
-		writeJSON(w, http.StatusOK, items)
+func env(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
 	}
+	return fallback
+}
+`, module, module, module, mongoTimeout(ctx), ctx.Config.Mongo.Connection.Database, repoVars.String(), serviceVars.String(), serverFields.String(), mongoAuthBasicUsernameEnv(ctx), mongoAuthBasicPasswordEnv(ctx), mongoAuthBasicRealm(ctx), mongoQuotedSlice(mongoAuthBasicRoles(ctx)), mongoAuthJWTSecretEnv(ctx), mongoAuthJWTHeader(ctx), mongoAuthJWTScheme(ctx), mongoAuthJWTIssuer(ctx), mongoAuthJWTAudience(ctx), mongoAuthRoleClaim(ctx), mongoHTTPAddr(ctx))
 }
 
-func createDocument(collection *mongo.Collection) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var input bson.M
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		delete(input, "id")
-		delete(input, "_id")
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-		defer cancel()
-		result, err := collection.InsertOne(ctx, input)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-		input["_id"] = result.InsertedID
-		writeJSON(w, http.StatusOK, input)
-	}
+func mongoServerResponseSource() string {
+	return `package server
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+func RespondOK(value any, w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, value)
 }
 
-func getDocument(collection *mongo.Collection) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := objectID(r)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-		defer cancel()
-		var item bson.M
-		if err := collection.FindOne(ctx, bson.M{"_id": id}).Decode(&item); err != nil {
-			status := http.StatusInternalServerError
-			if errors.Is(err, mongo.ErrNoDocuments) {
-				status = http.StatusNotFound
-			}
-			writeError(w, status, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, item)
-	}
+func BadRequest(code string, err error, w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusBadRequest, code, err)
 }
 
-func updateDocument(collection *mongo.Collection) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := objectID(r)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		var input bson.M
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		delete(input, "id")
-		delete(input, "_id")
-		if len(input) == 0 {
-			writeError(w, http.StatusBadRequest, errors.New("empty update body"))
-			return
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-		defer cancel()
-		var item bson.M
-		err = collection.FindOneAndUpdate(ctx, bson.M{"_id": id}, bson.M{"$set": input}, options.FindOneAndUpdate().SetReturnDocument(options.After)).Decode(&item)
-		if err != nil {
-			status := http.StatusInternalServerError
-			if errors.Is(err, mongo.ErrNoDocuments) {
-				status = http.StatusNotFound
-			}
-			writeError(w, status, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, item)
-	}
+func NotFound(code string, err error, w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusNotFound, code, err)
 }
 
-func deleteDocument(collection *mongo.Collection) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := objectID(r)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-		defer cancel()
-		if _, err := collection.DeleteOne(ctx, bson.M{"_id": id}); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
-	}
+func Unauthorised(code string, err error, w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusUnauthorized, code, err)
 }
 
-func objectID(r *http.Request) (primitive.ObjectID, error) {
-	return primitive.ObjectIDFromHex(mux.Vars(r)["id"])
+func Forbidden(code string, err error, w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusForbidden, code, err)
 }
 
-func swaggerUI(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(`+"`"+`<!doctype html><html><head><title>Generated REST API</title>
-<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"></head>
-<body><div id="swagger-ui"></div>
-<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-<script>SwaggerUIBundle({url:%q,dom_id:'#swagger-ui'});</script></body></html>`+"`"+`))
+func InternalError(code string, err error, w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusInternalServerError, code, err)
+}
+
+func RespondWithError(err error, w http.ResponseWriter, r *http.Request) {
+	InternalError("internal-error", err, w, r)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -303,17 +276,1055 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func writeError(w http.ResponseWriter, status int, err error) {
-	writeJSON(w, status, map[string]string{"error": err.Error()})
+func writeError(w http.ResponseWriter, status int, code string, err error) {
+	response := map[string]string{"error": code}
+	if err != nil {
+		response["message"] = err.Error()
+	}
+	writeJSON(w, status, response)
+}
+`
 }
 
-func env(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func mongoDomainSource() string {
+	return `package domain
+
+import (
+	"errors"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+var ErrNotFound = errors.New("document not found")
+
+type Document map[string]any
+
+func NormalizeDocument(doc Document) Document {
+	if doc == nil {
+		return Document{}
 	}
-	return fallback
+	if value, ok := doc["_id"].(primitive.ObjectID); ok {
+		doc["id"] = value.Hex()
+	}
+	return doc
 }
-`, strconv.Quote(swagger), mongoTimeout(ctx), ctx.Config.Mongo.Connection.Database, rootPath, healthPath, specPath, uiPath, routes.String(), mongoHTTPAddr(ctx), specPath)
+
+func NormalizeDocuments(docs []Document) []Document {
+	if docs == nil {
+		return []Document{}
+	}
+	for i := range docs {
+		docs[i] = NormalizeDocument(docs[i])
+	}
+	return docs
+}
+`
+}
+
+func mongoRepositoryFilterSource() string {
+	return `package mongorepo
+
+import "go.mongodb.org/mongo-driver/bson"
+
+type methodFilter struct {
+	Field string
+	Op    string
+	Param string
+	Value any
+}
+
+func buildMethodFilter(params map[string]any, filters []methodFilter) bson.M {
+	if len(filters) == 0 {
+		filter := bson.M{}
+		for key, value := range params {
+			if key == "body" || value == nil {
+				continue
+			}
+			filter[key] = value
+		}
+		return filter
+	}
+	filter := bson.M{}
+	for _, item := range filters {
+		if item.Field == "" {
+			continue
+		}
+		value := item.Value
+		if item.Param != "" {
+			value = params[item.Param]
+		}
+		if value == nil {
+			continue
+		}
+		switch item.Op {
+		case "", "eq":
+			filter[item.Field] = value
+		case "ne":
+			filter[item.Field] = bson.M{"$ne": value}
+		case "gt":
+			filter[item.Field] = bson.M{"$gt": value}
+		case "gte":
+			filter[item.Field] = bson.M{"$gte": value}
+		case "lt":
+			filter[item.Field] = bson.M{"$lt": value}
+		case "lte":
+			filter[item.Field] = bson.M{"$lte": value}
+		case "regex":
+			filter[item.Field] = bson.M{"$regex": value}
+		case "in":
+			filter[item.Field] = bson.M{"$in": value}
+		case "nin":
+			filter[item.Field] = bson.M{"$nin": value}
+		case "exists":
+			filter[item.Field] = bson.M{"$exists": value}
+		default:
+			filter[item.Field] = value
+		}
+	}
+	return filter
+}
+`
+}
+
+func mongoRepositorySource(model generator.MongoModel) string {
+	var methods strings.Builder
+	for _, method := range model.Methods {
+		fmt.Fprint(&methods, mongoRepositoryMethodSource(method))
+	}
+	return fmt.Sprintf(`package mongorepo
+
+import (
+	"context"
+	"errors"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"%s/internal/app/domain"
+)
+
+type %sRepository struct {
+	collection *mongo.Collection
+}
+
+func New%sRepository(collection *mongo.Collection) %sRepository {
+	return %sRepository{collection: collection}
+}
+
+func (r %sRepository) List(ctx context.Context) ([]domain.Document, error) {
+	cursor, err := r.collection.Find(ctx, bson.M{})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var items []domain.Document
+	if err := cursor.All(ctx, &items); err != nil {
+		return nil, err
+	}
+	return domain.NormalizeDocuments(items), nil
+}
+
+func (r %sRepository) Create(ctx context.Context, input domain.Document) (domain.Document, error) {
+	delete(input, "id")
+	delete(input, "_id")
+	result, err := r.collection.InsertOne(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	input["_id"] = result.InsertedID
+	return domain.NormalizeDocument(input), nil
+}
+
+func (r %sRepository) GetByID(ctx context.Context, id primitive.ObjectID) (domain.Document, error) {
+	var item domain.Document
+	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&item)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return domain.NormalizeDocument(item), nil
+}
+
+func (r %sRepository) Update(ctx context.Context, id primitive.ObjectID, input domain.Document) (domain.Document, error) {
+	delete(input, "id")
+	delete(input, "_id")
+	if len(input) == 0 {
+		return nil, errors.New("empty update body")
+	}
+	var item domain.Document
+	err := r.collection.FindOneAndUpdate(ctx, bson.M{"_id": id}, bson.M{"$set": input}, options.FindOneAndUpdate().SetReturnDocument(options.After)).Decode(&item)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return domain.NormalizeDocument(item), nil
+}
+
+func (r %sRepository) Delete(ctx context.Context, id primitive.ObjectID) error {
+	result, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})
+	if err != nil {
+		return err
+	}
+	if result.DeletedCount == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+%s`, mongoModulePlaceholder(), model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, methods.String())
+}
+
+func mongoRepositoryMethodSource(method generator.MongoMethod) string {
+	filters := mongoMethodFiltersLiteral(method.Filters)
+	switch strings.ToLower(method.Operation) {
+	case "find_one":
+		return fmt.Sprintf(`
+
+func (r %sRepository) %s(ctx context.Context, params map[string]any) (any, error) {
+	filter := buildMethodFilter(params, %s)
+	var item domain.Document
+	err := r.collection.FindOne(ctx, filter).Decode(&item)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return domain.NormalizeDocument(item), nil
+}
+`, method.Model, method.Name, filters)
+	case "update_one":
+		return fmt.Sprintf(`
+
+func (r %sRepository) %s(ctx context.Context, params map[string]any) (any, error) {
+	filter := buildMethodFilter(params, %s)
+	update, _ := params["body"].(domain.Document)
+	if len(update) == 0 {
+		return nil, errors.New("empty update body")
+	}
+	delete(update, "id")
+	delete(update, "_id")
+	var item domain.Document
+	err := r.collection.FindOneAndUpdate(ctx, filter, bson.M{"$set": update}, options.FindOneAndUpdate().SetReturnDocument(options.After)).Decode(&item)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return domain.NormalizeDocument(item), nil
+}
+`, method.Model, method.Name, filters)
+	case "delete_one":
+		return fmt.Sprintf(`
+
+func (r %sRepository) %s(ctx context.Context, params map[string]any) (any, error) {
+	filter := buildMethodFilter(params, %s)
+	result, err := r.collection.DeleteOne(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	if result.DeletedCount == 0 {
+		return nil, domain.ErrNotFound
+	}
+	return map[string]bool{"deleted": true}, nil
+}
+`, method.Model, method.Name, filters)
+	case "aggregate":
+		return fmt.Sprintf(`
+
+func (r %sRepository) %s(ctx context.Context, params map[string]any) (any, error) {
+	filter := buildMethodFilter(params, %s)
+	pipeline := mongo.Pipeline{}
+	if len(filter) > 0 {
+		pipeline = append(pipeline, bson.D{{Key: "$match", Value: filter}})
+	}
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var items []domain.Document
+	if err := cursor.All(ctx, &items); err != nil {
+		return nil, err
+	}
+	return domain.NormalizeDocuments(items), nil
+}
+`, method.Model, method.Name, filters)
+	default:
+		return fmt.Sprintf(`
+
+func (r %sRepository) %s(ctx context.Context, params map[string]any) (any, error) {
+	filter := buildMethodFilter(params, %s)
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var items []domain.Document
+	if err := cursor.All(ctx, &items); err != nil {
+		return nil, err
+	}
+	return domain.NormalizeDocuments(items), nil
+}
+`, method.Model, method.Name, filters)
+	}
+}
+
+func mongoServiceSource(model generator.MongoModel) string {
+	var methods strings.Builder
+	for _, method := range model.Methods {
+		fmt.Fprintf(&methods, `
+
+func (s %sService) %s(ctx context.Context, params map[string]any) (any, error) {
+	return s.repo.%s(ctx, params)
+}
+`, model.Name, method.Name, method.Name)
+	}
+	return fmt.Sprintf(`package services
+
+import (
+	"context"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+
+	"%s/internal/app/domain"
+	"%s/internal/app/repository/mongorepo"
+)
+
+type %sService struct {
+	repo mongorepo.%sRepository
+}
+
+func New%sService(repo mongorepo.%sRepository) %sService {
+	return %sService{repo: repo}
+}
+
+func (s %sService) List(ctx context.Context) ([]domain.Document, error) {
+	return s.repo.List(ctx)
+}
+
+func (s %sService) Create(ctx context.Context, input domain.Document) (domain.Document, error) {
+	return s.repo.Create(ctx, input)
+}
+
+func (s %sService) GetByID(ctx context.Context, id primitive.ObjectID) (domain.Document, error) {
+	return s.repo.GetByID(ctx, id)
+}
+
+func (s %sService) Update(ctx context.Context, id primitive.ObjectID, input domain.Document) (domain.Document, error) {
+	return s.repo.Update(ctx, id, input)
+}
+
+func (s %sService) Delete(ctx context.Context, id primitive.ObjectID) error {
+	return s.repo.Delete(ctx, id)
+}
+%s`, mongoModulePlaceholder(), mongoModulePlaceholder(), model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, methods.String())
+}
+
+func mongoHTTPServerSource(ctx Context, models []generator.MongoModel) string {
+	module := ctx.Config.Rest.Module
+	if module == "" {
+		module = "generated-mongo-api"
+	}
+	var fields strings.Builder
+	var routes strings.Builder
+	for _, model := range models {
+		if model.Embedded || model.Collection == "" {
+			continue
+		}
+		fmt.Fprintf(&fields, "\t%sService services.%sService\n", model.Name, model.Name)
+		base := "/" + strings.Trim(model.Collection, "/")
+		addMongoRoute(&routes, ctx, "GET", base, "h.GetAll"+pluralizeGoName(model.Name))
+		addMongoRoute(&routes, ctx, "POST", base, "h.Create"+model.Name)
+		addMongoRoute(&routes, ctx, "GET", base+"/{id}", "h.Get"+model.Name+"ByID")
+		addMongoRoute(&routes, ctx, "PATCH", base+"/{id}", "h.Update"+model.Name)
+		addMongoRoute(&routes, ctx, "DELETE", base+"/{id}", "h.Delete"+model.Name)
+		for _, method := range model.Methods {
+			httpMethod := method.Method
+			if httpMethod == "" {
+				httpMethod = mongoHTTPMethodForOperation(method.Operation)
+			}
+			addMongoRoute(&routes, ctx, httpMethod, method.Path, "h."+method.Name)
+		}
+	}
+	rootPath := routePath(ctx.Config.Rest.HTTP.BasePath, "/")
+	healthPath := routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.HTTP.Health.Path)
+	specPath := routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.OpenAPI.SpecPath)
+	uiPath := routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.OpenAPI.UIPath)
+	return fmt.Sprintf(`package httpserver
+
+import (
+	"net/http"
+
+	"github.com/gorilla/mux"
+
+	"%s/internal/app/common/server"
+	"%s/internal/app/services"
+)
+
+type HttpServer struct {
+%s	BasicAuth    BasicAuthConfig
+	JWTSecret    string
+	JWTHeader    string
+	JWTScheme    string
+	JWTIssuer    string
+	JWTAudience  string
+	JWTRoleClaim string
+}
+
+func (h HttpServer) RegisterRoutes(router *mux.Router) {
+	router.HandleFunc(%q, func(w http.ResponseWriter, r *http.Request) {
+		server.RespondOK(map[string]string{"status": "ok"}, w, r)
+	}).Methods(http.MethodGet)
+	router.HandleFunc(%q, func(w http.ResponseWriter, r *http.Request) {
+		server.RespondOK(map[string]string{"status": "ok"}, w, r)
+	}).Methods(http.MethodGet)
+	router.HandleFunc(%q, h.OpenAPISpec).Methods(http.MethodGet)
+	router.HandleFunc(%q, h.SwaggerUI).Methods(http.MethodGet)
+%s}
+`, module, module, fields.String(), rootPath, healthPath, specPath, uiPath, routes.String())
+}
+
+func mongoSwaggerSource(ctx Context, swagger string) string {
+	specPath := routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.OpenAPI.SpecPath)
+	return fmt.Sprintf(`package httpserver
+
+import "net/http"
+
+const swaggerSpec = %s
+
+func (h HttpServer) OpenAPISpec(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/yaml")
+	_, _ = w.Write([]byte(swaggerSpec))
+}
+
+func (h HttpServer) SwaggerUI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(`+"`"+`<!doctype html><html><head><title>Generated REST API</title>
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"></head>
+<body><div id="swagger-ui"></div>
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script>SwaggerUIBundle({url:%q,dom_id:'#swagger-ui'});</script></body></html>`+"`"+`))
+}
+`, strconv.Quote(swagger), specPath)
+}
+
+func mongoHTTPHelpersSource() string {
+	return `package httpserver
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strconv"
+
+	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+
+	"{{MODULE}}/internal/app/common/server"
+	"{{MODULE}}/internal/app/domain"
+)
+
+func objectID(r *http.Request) (primitive.ObjectID, error) {
+	return primitive.ObjectIDFromHex(mux.Vars(r)["id"])
+}
+
+func decodeDocument(r *http.Request) (domain.Document, error) {
+	var input domain.Document
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		return nil, err
+	}
+	return input, nil
+}
+
+func parseMongoParam(raw string, typ string) (any, error) {
+	switch typ {
+	case "object_id":
+		return primitive.ObjectIDFromHex(raw)
+	case "int", "int32", "int64":
+		return strconv.ParseInt(raw, 10, 64)
+	case "float", "float64", "double", "decimal":
+		return strconv.ParseFloat(raw, 64)
+	case "bool", "boolean":
+		return strconv.ParseBool(raw)
+	default:
+		return raw, nil
+	}
+}
+
+func methodParams(r *http.Request, specs []methodParamSpec) (map[string]any, error) {
+	params := map[string]any{}
+	pathVars := mux.Vars(r)
+	for _, spec := range specs {
+		var raw string
+		switch spec.Source {
+		case "path":
+			raw = pathVars[spec.Name]
+		case "query", "":
+			raw = r.URL.Query().Get(spec.Name)
+		case "header":
+			raw = r.Header.Get(spec.Name)
+		case "body":
+			body, err := decodeDocument(r)
+			if err != nil {
+				return nil, err
+			}
+			params["body"] = body
+			params[spec.Name] = body
+			continue
+		default:
+			raw = r.URL.Query().Get(spec.Name)
+		}
+		if raw == "" {
+			if spec.Required {
+				return nil, errors.New(spec.Name + " is required")
+			}
+			continue
+		}
+		value, err := parseMongoParam(raw, spec.Type)
+		if err != nil {
+			return nil, err
+		}
+		params[spec.Name] = value
+	}
+	return params, nil
+}
+
+type methodParamSpec struct {
+	Name     string
+	Type     string
+	Source   string
+	Required bool
+}
+
+func writeHandlerError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, domain.ErrNotFound) {
+		server.NotFound("not-found", err, w, r)
+		return
+	}
+	server.RespondWithError(err, w, r)
+}
+`
+}
+
+func mongoHandlersSource(model generator.MongoModel) string {
+	var custom strings.Builder
+	for _, method := range model.Methods {
+		fmt.Fprint(&custom, mongoHandlerMethodSource(model, method))
+	}
+	return fmt.Sprintf(`package httpserver
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"%s/internal/app/common/server"
+)
+
+func (h HttpServer) GetAll%s(w http.ResponseWriter, r *http.Request) {
+	items, err := h.%sService.List(r.Context())
+	if err != nil {
+		writeHandlerError(w, r, err)
+		return
+	}
+	server.RespondOK(items, w, r)
+}
+
+func (h HttpServer) Create%s(w http.ResponseWriter, r *http.Request) {
+	input, err := decodeDocument(r)
+	if err != nil {
+		server.BadRequest("invalid-json", err, w, r)
+		return
+	}
+	item, err := h.%sService.Create(r.Context(), input)
+	if err != nil {
+		writeHandlerError(w, r, err)
+		return
+	}
+	server.RespondOK(item, w, r)
+}
+
+func (h HttpServer) Get%sByID(w http.ResponseWriter, r *http.Request) {
+	id, err := objectID(r)
+	if err != nil {
+		server.BadRequest("invalid-id", err, w, r)
+		return
+	}
+	item, err := h.%sService.GetByID(r.Context(), id)
+	if err != nil {
+		writeHandlerError(w, r, err)
+		return
+	}
+	server.RespondOK(item, w, r)
+}
+
+func (h HttpServer) Update%s(w http.ResponseWriter, r *http.Request) {
+	id, err := objectID(r)
+	if err != nil {
+		server.BadRequest("invalid-id", err, w, r)
+		return
+	}
+	input, err := decodeDocument(r)
+	if err != nil {
+		server.BadRequest("invalid-json", err, w, r)
+		return
+	}
+	item, err := h.%sService.Update(r.Context(), id, input)
+	if err != nil {
+		writeHandlerError(w, r, err)
+		return
+	}
+	server.RespondOK(item, w, r)
+}
+
+func (h HttpServer) Delete%s(w http.ResponseWriter, r *http.Request) {
+	id, err := objectID(r)
+	if err != nil {
+		server.BadRequest("invalid-id", err, w, r)
+		return
+	}
+	if err := h.%sService.Delete(r.Context(), id); err != nil {
+		writeHandlerError(w, r, err)
+		return
+	}
+	server.RespondOK(map[string]bool{"deleted": true}, w, r)
+}
+
+var _ = json.Valid
+%s`, mongoModulePlaceholder(), pluralizeGoName(model.Name), model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, custom.String())
+}
+
+func mongoHandlerMethodSource(model generator.MongoModel, method generator.MongoMethod) string {
+	return fmt.Sprintf(`
+
+func (h HttpServer) %s(w http.ResponseWriter, r *http.Request) {
+	params, err := methodParams(r, %s)
+	if err != nil {
+		server.BadRequest("invalid-parameters", err, w, r)
+		return
+	}
+	result, err := h.%sService.%s(r.Context(), params)
+	if err != nil {
+		writeHandlerError(w, r, err)
+		return
+	}
+	server.RespondOK(result, w, r)
+}
+`, method.Name, mongoMethodParamsLiteral(method.Params), model.Name, method.Name)
+}
+
+func mongoAuthMiddlewareSource(ctx Context) string {
+	if !authFeatures(ctx.Config).Enabled {
+		return `package httpserver
+
+import "net/http"
+
+type ContextKey string
+
+const ContextUserKey ContextKey = "user"
+
+type BasicAuthConfig struct {
+	Username string
+	Password string
+	Realm    string
+	Roles    []string
+}
+
+func (h HttpServer) CheckRoles(next http.HandlerFunc, allowedRoles ...string) http.HandlerFunc {
+	return next
+}
+
+func (h HttpServer) CheckAuthorizedUser(next http.HandlerFunc) http.HandlerFunc {
+	return next
+}
+`
+	}
+	strategy := authStrategy(ctx)
+	if strategy == "basic" {
+		return `package httpserver
+
+import (
+	"context"
+	"crypto/subtle"
+	"net/http"
+
+	"{{MODULE}}/internal/app/common/server"
+)
+
+type ContextKey string
+
+const ContextUserKey ContextKey = "user"
+
+type BasicAuthConfig struct {
+	Username string
+	Password string
+	Realm    string
+	Roles    []string
+}
+
+func (h HttpServer) CheckRoles(next http.HandlerFunc, allowedRoles ...string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, roles, ok := h.authenticateRequest(w, r)
+		if !ok {
+			return
+		}
+		if !hasAllowedRole(roles, allowedRoles) {
+			server.Forbidden("not-authorized", nil, w, r)
+			return
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), ContextUserKey, user)))
+	}
+}
+
+func (h HttpServer) CheckAuthorizedUser(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _, ok := h.authenticateRequest(w, r)
+		if !ok {
+			return
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), ContextUserKey, user)))
+	}
+}
+
+func (h HttpServer) authenticateRequest(w http.ResponseWriter, r *http.Request) (any, []string, bool) {
+	username, password, ok := r.BasicAuth()
+	if !ok || h.BasicAuth.Username == "" || h.BasicAuth.Password == "" {
+		h.basicChallenge(w)
+		server.Unauthorised("missing-basic-auth", nil, w, r)
+		return nil, nil, false
+	}
+	usernameOK := subtle.ConstantTimeCompare([]byte(username), []byte(h.BasicAuth.Username)) == 1
+	passwordOK := subtle.ConstantTimeCompare([]byte(password), []byte(h.BasicAuth.Password)) == 1
+	if !usernameOK || !passwordOK {
+		h.basicChallenge(w)
+		server.Unauthorised("invalid-basic-auth", nil, w, r)
+		return nil, nil, false
+	}
+	return username, append([]string(nil), h.BasicAuth.Roles...), true
+}
+
+func (h HttpServer) basicChallenge(w http.ResponseWriter) {
+	realm := h.BasicAuth.Realm
+	if realm == "" {
+		realm = "Restricted"
+	}
+	w.Header().Set("WWW-Authenticate", ` + "`" + `Basic realm="` + "`" + `+realm+` + "`" + `"` + "`" + `)
+}
+
+func hasAllowedRole(userRoles []string, allowedRoles []string) bool {
+	if len(allowedRoles) == 0 {
+		return true
+	}
+	for _, userRole := range userRoles {
+		for _, allowedRole := range allowedRoles {
+			if userRole == allowedRole {
+				return true
+			}
+		}
+	}
+	return false
+}
+`
+	}
+	return `package httpserver
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"strings"
+
+	"github.com/golang-jwt/jwt"
+
+	"{{MODULE}}/internal/app/common/server"
+)
+
+type ContextKey string
+
+const ContextUserKey ContextKey = "user"
+
+type BasicAuthConfig struct {
+	Username string
+	Password string
+	Realm    string
+	Roles    []string
+}
+
+func (h HttpServer) CheckRoles(next http.HandlerFunc, allowedRoles ...string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, roles, ok := h.authenticateRequest(w, r)
+		if !ok {
+			return
+		}
+		if !hasAllowedRole(roles, allowedRoles) {
+			server.Forbidden("not-authorized", nil, w, r)
+			return
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), ContextUserKey, user)))
+	}
+}
+
+func (h HttpServer) CheckAuthorizedUser(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _, ok := h.authenticateRequest(w, r)
+		if !ok {
+			return
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), ContextUserKey, user)))
+	}
+}
+
+func (h HttpServer) authenticateRequest(w http.ResponseWriter, r *http.Request) (any, []string, bool) {
+	if h.JWTSecret == "" {
+		server.Unauthorised("missing-jwt-secret", nil, w, r)
+		return nil, nil, false
+	}
+	header := h.JWTHeader
+	if header == "" {
+		header = "Authorization"
+	}
+	scheme := h.JWTScheme
+	if scheme == "" {
+		scheme = "Bearer"
+	}
+	tokenValue := strings.TrimSpace(r.Header.Get(header))
+	tokenValue = strings.TrimSpace(strings.TrimPrefix(tokenValue, scheme+" "))
+	if tokenValue == "" {
+		server.Unauthorised("missing-token", nil, w, r)
+		return nil, nil, false
+	}
+	claims := jwt.MapClaims{}
+	parsed, err := jwt.ParseWithClaims(tokenValue, claims, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return []byte(h.JWTSecret), nil
+	})
+	if err != nil || !parsed.Valid {
+		server.Unauthorised("invalid-token", err, w, r)
+		return nil, nil, false
+	}
+	return claims, rolesFromClaims(claims, h.JWTRoleClaim), true
+}
+
+func rolesFromClaims(claims jwt.MapClaims, roleClaim string) []string {
+	if roleClaim == "" {
+		roleClaim = "roles"
+	}
+	value, ok := claims[roleClaim]
+	if !ok {
+		return nil
+	}
+	switch typed := value.(type) {
+	case string:
+		if typed == "" {
+			return nil
+		}
+		return []string{typed}
+	case []any:
+		roles := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if role, ok := item.(string); ok {
+				roles = append(roles, role)
+			}
+		}
+		return roles
+	default:
+		return nil
+	}
+}
+
+func hasAllowedRole(userRoles []string, allowedRoles []string) bool {
+	if len(allowedRoles) == 0 {
+		return true
+	}
+	for _, userRole := range userRoles {
+		for _, allowedRole := range allowedRoles {
+			if userRole == allowedRole {
+				return true
+			}
+		}
+	}
+	return false
+}
+`
+}
+
+func mongoEnvSource(ctx Context) string {
+	lines := []string{
+		"MONGO_URI=mongodb://localhost:27017",
+		"HTTP_ADDR=" + mongoHTTPAddr(ctx),
+	}
+	if authFeatures(ctx.Config).Enabled {
+		if authStrategy(ctx) == "basic" {
+			lines = append(lines, mongoAuthBasicUsernameEnv(ctx)+"=admin", mongoAuthBasicPasswordEnv(ctx)+"=change-me")
+		} else {
+			lines = append(lines, mongoAuthJWTSecretEnv(ctx)+"=change-me")
+		}
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func mongoDockerfileSource(ctx Context) string {
+	cgo := "0"
+	if ctx.Config.Rest.Docker.CGOEnabled {
+		cgo = "1"
+	}
+	return fmt.Sprintf(`FROM %s AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=%s go build -o /out/%s ./cmd
+
+FROM %s
+WORKDIR /app
+COPY --from=build /out/%s /app/%s
+EXPOSE %d
+USER %s
+ENTRYPOINT ["/app/%s"]
+`, ctx.Config.Rest.Docker.BuildImage, cgo, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.Docker.RuntimeImage, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.HTTP.Port, ctx.Config.Rest.Docker.User, ctx.Config.Rest.Docker.Binary)
+}
+
+func mongoDockerignoreSource() string {
+	return `.git
+tmp
+dist
+node_modules
+coverage.out
+`
+}
+
+func mongoDockerComposeSource(ctx Context) string {
+	port := ctx.Config.Rest.HTTP.Port
+	return fmt.Sprintf(`services:
+  app:
+    build:
+      context: .
+      dockerfile: %s
+    environment:
+      HTTP_ADDR: 0.0.0.0:%d
+      MONGO_URI: mongodb://mongo:27017
+    ports:
+      - "%d:%d"
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  mongo_data:
+`, ctx.Config.Rest.Docker.Output, port, port, port)
+}
+
+func addMongoRoute(routes *strings.Builder, ctx Context, method, path, handler string) {
+	method = strings.ToUpper(method)
+	methodConst := mongoHTTPMethodConst(method)
+	if methodConst == "" {
+		return
+	}
+	fullPath := routePath(ctx.Config.Rest.HTTP.BasePath, normalizeMongoEndpointPath(path))
+	wrapped := mongoAuthHandler(authFeatures(ctx.Config), ctx.Config.Rest.HTTP.BasePath, method, normalizeMongoEndpointPath(path), handler)
+	fmt.Fprintf(routes, "\trouter.HandleFunc(%q, %s).Methods(%s)\n", fullPath, wrapped, methodConst)
+}
+
+func mongoAuthHandler(auth generator.AuthFeatures, basePath, method, path, handler string) string {
+	if !auth.Enabled {
+		return handler
+	}
+	key := strings.ToUpper(method) + " " + routePath(basePath, path)
+	policy, ok := auth.Policies[key]
+	if ok && policy.Public {
+		return handler
+	}
+	if !ok && strings.EqualFold(auth.DefaultPolicy, "allow") {
+		return handler
+	}
+	if len(policy.Roles) == 0 {
+		return "h.CheckAuthorizedUser(" + handler + ")"
+	}
+	quoted := make([]string, 0, len(policy.Roles))
+	for _, role := range policy.Roles {
+		quoted = append(quoted, strconv.Quote(role))
+	}
+	return "h.CheckRoles(" + handler + ", " + strings.Join(quoted, ", ") + ")"
+}
+
+func mongoMethodParamsLiteral(params []generator.MongoMethodParam) string {
+	if len(params) == 0 {
+		return "nil"
+	}
+	var items []string
+	for _, param := range params {
+		items = append(items, fmt.Sprintf(`{Name:%q, Type:%q, Source:%q, Required:%t}`, param.Name, param.Type, param.Source, param.Required))
+	}
+	return "[]methodParamSpec{" + strings.Join(items, ", ") + "}"
+}
+
+func mongoMethodFiltersLiteral(filters []generator.MongoFilter) string {
+	if len(filters) == 0 {
+		return "nil"
+	}
+	var items []string
+	for _, filter := range filters {
+		items = append(items, fmt.Sprintf(`{Field:%q, Op:%q, Param:%q, Value:%s}`, filter.Field, filter.Op, filter.Param, mongoFilterValueLiteral(filter.Value)))
+	}
+	return "[]methodFilter{" + strings.Join(items, ", ") + "}"
+}
+
+func mongoFilterValueLiteral(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return "nil"
+	case string:
+		return strconv.Quote(typed)
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			values = append(values, mongoFilterValueLiteral(item))
+		}
+		return "[]any{" + strings.Join(values, ", ") + "}"
+	case []string:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			values = append(values, strconv.Quote(item))
+		}
+		return "[]any{" + strings.Join(values, ", ") + "}"
+	case int, int64, int32, float64, float32, bool:
+		return fmt.Sprintf("%v", typed)
+	default:
+		return strconv.Quote(fmt.Sprint(typed))
+	}
+}
+
+func mongoHTTPMethodConst(method string) string {
+	switch strings.ToUpper(method) {
+	case "GET":
+		return "http.MethodGet"
+	case "POST":
+		return "http.MethodPost"
+	case "PUT":
+		return "http.MethodPut"
+	case "PATCH":
+		return "http.MethodPatch"
+	case "DELETE":
+		return "http.MethodDelete"
+	case "OPTIONS":
+		return "http.MethodOptions"
+	default:
+		return ""
+	}
 }
 
 func mongoHTTPAddr(ctx Context) string {
@@ -334,4 +1345,84 @@ func mongoTimeout(ctx Context) string {
 		timeout = "10s"
 	}
 	return timeout
+}
+
+func mongoQuotedSlice(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, strconv.Quote(value))
+	}
+	return strings.Join(quoted, ", ")
+}
+
+func mongoAuthJWTSecretEnv(ctx Context) string {
+	value := authFeatures(ctx.Config).JWTSecretEnv
+	if value == "" {
+		return "JWT_SECRET"
+	}
+	return value
+}
+
+func mongoAuthJWTHeader(ctx Context) string {
+	value := authFeatures(ctx.Config).JWTHeader
+	if value == "" {
+		return "Authorization"
+	}
+	return value
+}
+
+func mongoAuthJWTScheme(ctx Context) string {
+	value := authFeatures(ctx.Config).JWTScheme
+	if value == "" {
+		return "Bearer"
+	}
+	return value
+}
+
+func mongoAuthJWTIssuer(ctx Context) string {
+	return authFeatures(ctx.Config).JWTIssuer
+}
+
+func mongoAuthJWTAudience(ctx Context) string {
+	return authFeatures(ctx.Config).JWTAudience
+}
+
+func mongoAuthRoleClaim(ctx Context) string {
+	value := authFeatures(ctx.Config).RoleClaim
+	if value == "" {
+		return "roles"
+	}
+	return value
+}
+
+func mongoAuthBasicUsernameEnv(ctx Context) string {
+	value := authFeatures(ctx.Config).BasicUsernameEnv
+	if value == "" {
+		return "BASIC_AUTH_USERNAME"
+	}
+	return value
+}
+
+func mongoAuthBasicPasswordEnv(ctx Context) string {
+	value := authFeatures(ctx.Config).BasicPasswordEnv
+	if value == "" {
+		return "BASIC_AUTH_PASSWORD"
+	}
+	return value
+}
+
+func mongoAuthBasicRealm(ctx Context) string {
+	value := authFeatures(ctx.Config).BasicRealm
+	if value == "" {
+		return "Restricted"
+	}
+	return value
+}
+
+func mongoAuthBasicRoles(ctx Context) []string {
+	return authFeatures(ctx.Config).BasicRoles
+}
+
+func mongoModulePlaceholder() string {
+	return "{{MODULE}}"
 }

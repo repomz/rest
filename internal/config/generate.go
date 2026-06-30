@@ -151,4 +151,21 @@ models:
       - name: tags
         type: "[]string"
         default: []
+
+methods:
+  - model: Item
+    name: FindItemsByStatus
+    operation: find_many
+    http:
+      method: GET
+      path: /items/by-status
+    parameters:
+      - name: status
+        type: string
+        source: query
+        required: true
+    filter:
+      - field: status
+        op: eq
+        param: status
 `
