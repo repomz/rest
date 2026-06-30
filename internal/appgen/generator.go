@@ -149,12 +149,13 @@ func validateConfig(bundle config.Bundle) error {
 		}
 	}
 	for name, value := range map[string]string{
-		"http.timeouts.read_header":    bundle.Rest.HTTP.Timeouts.ReadHeader,
-		"http.timeouts.read":           bundle.Rest.HTTP.Timeouts.Read,
-		"http.timeouts.write":          bundle.Rest.HTTP.Timeouts.Write,
-		"http.timeouts.idle":           bundle.Rest.HTTP.Timeouts.Idle,
-		"http.timeouts.shutdown":       bundle.Rest.HTTP.Timeouts.Shutdown,
-		"http.middleware.cors.max_age": bundle.Rest.HTTP.Middleware.CORS.MaxAge,
+		"http.timeouts.read_header":         bundle.Rest.HTTP.Timeouts.ReadHeader,
+		"http.timeouts.read":                bundle.Rest.HTTP.Timeouts.Read,
+		"http.timeouts.write":               bundle.Rest.HTTP.Timeouts.Write,
+		"http.timeouts.idle":                bundle.Rest.HTTP.Timeouts.Idle,
+		"http.timeouts.shutdown":            bundle.Rest.HTTP.Timeouts.Shutdown,
+		"http.middleware.cors.max_age":      bundle.Rest.HTTP.Middleware.CORS.MaxAge,
+		"http.middleware.rate_limit.window": bundle.Rest.HTTP.Middleware.RateLimit.Window,
 	} {
 		if value == "" {
 			continue
@@ -168,6 +169,14 @@ func validateConfig(bundle config.Bundle) error {
 			if origin == "*" {
 				return fmt.Errorf("CORS allow_credentials cannot be used with wildcard origin")
 			}
+		}
+	}
+	if bundle.Rest.HTTP.Middleware.RateLimit.Enabled.Bool() {
+		if bundle.Rest.HTTP.Middleware.RateLimit.RequestsPerWindow < 1 {
+			return fmt.Errorf("http.middleware.rate_limit.requests_per_window must be positive")
+		}
+		if bundle.Rest.HTTP.Middleware.RateLimit.Window == "" {
+			return fmt.Errorf("http.middleware.rate_limit.window is required")
 		}
 	}
 	if bundle.Rest.Logging.Enabled.Bool() && bundle.Rest.Logging.Output.Type != "stdout" && bundle.Rest.Logging.Output.Type != "stderr" && bundle.Rest.Logging.Output.Type != "file" {
@@ -840,6 +849,16 @@ func (SQLFeature) Generate(ctx Context) error {
 				RecoveryExposeDetails: ctx.Config.Rest.HTTP.Middleware.Recovery.ExposeDetails,
 				RequestID:             ctx.Config.Rest.HTTP.Middleware.RequestID.Enabled.Bool(),
 				RequestIDHeader:       ctx.Config.Rest.HTTP.Middleware.RequestID.Header,
+				SecurityHeaders:       ctx.Config.Rest.HTTP.Middleware.SecurityHeaders.Enabled.Bool(),
+				ContentTypeOptions:    ctx.Config.Rest.HTTP.Middleware.SecurityHeaders.ContentTypeOptions,
+				FrameOptions:          ctx.Config.Rest.HTTP.Middleware.SecurityHeaders.FrameOptions,
+				ReferrerPolicy:        ctx.Config.Rest.HTTP.Middleware.SecurityHeaders.ReferrerPolicy,
+				PermissionsPolicy:     ctx.Config.Rest.HTTP.Middleware.SecurityHeaders.PermissionsPolicy,
+				ContentSecurityPolicy: ctx.Config.Rest.HTTP.Middleware.SecurityHeaders.ContentSecurityPolicy,
+				HSTS:                  ctx.Config.Rest.HTTP.Middleware.SecurityHeaders.StrictTransportSecurity,
+				RateLimit:             ctx.Config.Rest.HTTP.Middleware.RateLimit.Enabled.Bool(),
+				RateLimitRequests:     ctx.Config.Rest.HTTP.Middleware.RateLimit.RequestsPerWindow,
+				RateLimitWindow:       ctx.Config.Rest.HTTP.Middleware.RateLimit.Window,
 				Host:                  ctx.Config.Rest.HTTP.Host,
 				Port:                  ctx.Config.Rest.HTTP.Port,
 				BasePath:              ctx.Config.Rest.HTTP.BasePath,

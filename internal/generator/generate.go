@@ -103,7 +103,7 @@ func Generate(opts Options) error {
 			files[defaultPath(opts.Features.Docker.ComposeOutput, "docker-compose.yml")] = dockerComposeTemplate
 		}
 	}
-	if opts.Features.HTTP.CORS || opts.Features.HTTP.Recovery || opts.Features.HTTP.RequestID || opts.Features.HTTP.MaxBodyBytes > 0 {
+	if opts.Features.HTTP.CORS || opts.Features.HTTP.Recovery || opts.Features.HTTP.RequestID || opts.Features.HTTP.SecurityHeaders || opts.Features.HTTP.RateLimit || opts.Features.HTTP.MaxBodyBytes > 0 {
 		files["internal/app/transport/middleware/http.go"] = httpMiddlewareTemplate
 	}
 	if opts.Features.Auth.Enabled {

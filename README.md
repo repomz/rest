@@ -9,7 +9,7 @@
 
 `rest` is a Go CLI for generating REST applications on top of SQLC/PostgreSQL and MongoDB contracts.
 
-For SQL projects, it reads SQL schemas, SQLC queries, and generated Go code, then creates a layered application with domain models, repositories, services, HTTP transport, OpenAPI, Docker, logging, metrics, tests, and curl examples. For MongoDB projects, it reads `rest_mongo/*.yaml` contracts and generates a layered MongoDB HTTP API with custom methods, OpenAPI documentation, auth middleware, and Docker output.
+For SQL projects, it reads SQL schemas, SQLC queries, and generated Go code, then creates a layered application with domain models, repositories, services, HTTP transport, OpenAPI, Docker, logging, metrics, security middleware, tests, and curl examples. For MongoDB projects, it reads `rest_mongo/*.yaml` contracts and generates a layered MongoDB HTTP API with custom methods, OpenAPI documentation, auth/security middleware, and Docker output.
 
 ## Installation
 
@@ -110,6 +110,10 @@ Set `auth: enable` in `rest_config/rest.yaml`. The first `rest gen` generates th
 
 When REST, SQLC, Mongo, schema, query, and auth configuration inputs have not changed, `rest gen` exits without regenerating code.
 
+### Security hardening
+
+Generated SQL and Mongo apps include configurable HTTP hardening under `http.middleware`: security headers, per-client-IP rate limiting, recovery, request IDs, max body size, and CORS. The canonical CORS defaults use explicit origins instead of `*`; set your production origins in `rest_config/rest.yaml`.
+
 ## Generated Application
 
 ```text
@@ -156,7 +160,7 @@ Pull requests should stay focused, include tests for new generator behavior, and
 
 ## Status
 
-Available: SQLC/PostgreSQL generation, MongoDB example generation, layered MongoDB CRUD/custom-method generation, OpenAPI, Docker/Docker Compose for SQL and Mongo projects, SQL JWT auth handlers, Mongo JWT/Basic Auth middleware, zap logging, metrics, handler tests, curl documentation, graceful shutdown, CI/CD workflow templates, safe reload, `rest doctor`, cosign/SHA-256 verified self-update, and signed release checksums.
+Available: SQLC/PostgreSQL generation, MongoDB example generation, layered MongoDB CRUD/custom-method generation, OpenAPI, Docker/Docker Compose for SQL and Mongo projects, SQL JWT auth handlers, Mongo JWT/Basic Auth middleware, security headers, rate limiting, production-safer CORS defaults, zap logging, metrics, handler tests, curl documentation, graceful shutdown, CI/CD workflow templates, safe reload, `rest doctor`, cosign/SHA-256 verified self-update, and signed release checksums.
 
 Planned: plugin support, dry-run/diff commands, generated manifests, and migration tooling for existing generated projects.
 

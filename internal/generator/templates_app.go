@@ -32,7 +32,7 @@ import (
 	{{- if .Features.HTTP.Health }}
 	"{{ .Module }}/internal/app/common/server"
 	{{- end }}
-	{{- if or .Features.HTTP.CORS .Features.HTTP.Recovery .Features.HTTP.RequestID (gt .Features.HTTP.MaxBodyBytes 0) }}
+	{{- if or .Features.HTTP.CORS .Features.HTTP.Recovery .Features.HTTP.RequestID .Features.HTTP.SecurityHeaders .Features.HTTP.RateLimit (gt .Features.HTTP.MaxBodyBytes 0) }}
 	"{{ .Module }}/internal/app/transport/middleware"
 	{{- end }}
 	{{- if .Features.Metrics.Enabled }}
@@ -170,8 +170,14 @@ func run() error {
 	{{- if gt .Features.HTTP.MaxBodyBytes 0 }}
 	handler = middleware.MaxBodyBytes({{ .Features.HTTP.MaxBodyBytes }}, handler)
 	{{- end }}
+	{{- if .Features.HTTP.RateLimit }}
+	handler = middleware.RateLimit({{ .Features.HTTP.RateLimitRequests }}, mustDuration({{ printf "%q" (defaultString .Features.HTTP.RateLimitWindow "1m") }}), handler)
+	{{- end }}
 	{{- if .Features.HTTP.CORS }}
 	handler = middleware.CORS(handler)
+	{{- end }}
+	{{- if .Features.HTTP.SecurityHeaders }}
+	handler = middleware.SecurityHeaders(handler)
 	{{- end }}
 	{{- if .Features.HTTP.Recovery }}
 	handler = middleware.Recovery(handler)

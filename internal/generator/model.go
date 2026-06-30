@@ -101,6 +101,16 @@ type HTTPFeatures struct {
 	RecoveryExposeDetails bool
 	RequestID             bool
 	RequestIDHeader       string
+	SecurityHeaders       bool
+	ContentTypeOptions    string
+	FrameOptions          string
+	ReferrerPolicy        string
+	PermissionsPolicy     string
+	ContentSecurityPolicy string
+	HSTS                  string
+	RateLimit             bool
+	RateLimitRequests     int
+	RateLimitWindow       string
 	Host                  string
 	Port                  int
 	BasePath              string

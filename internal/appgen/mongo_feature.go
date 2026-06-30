@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/repomz/rest/internal/generator"
 )
@@ -37,6 +38,9 @@ func (MongoFeature) Generate(ctx Context) error {
 		"internal/app/transport/httpserver/server.go":        mongoHTTPServerSource(ctx, models),
 		"internal/app/transport/httpserver/swagger.go":       mongoSwaggerSource(ctx, swagger),
 		"internal/app/transport/httpserver/mongo_helpers.go": mongoHTTPHelpersSource(),
+	}
+	if mongoMiddlewareEnabled(ctx) {
+		files["internal/app/transport/middleware/http.go"] = mongoMiddlewareSource(ctx)
 	}
 	files["internal/app/transport/httpserver/auth_middleware.go"] = mongoAuthMiddlewareSource(ctx)
 	for _, model := range models {
@@ -158,6 +162,24 @@ func mongoMainSource(ctx Context, models []generator.MongoModel) string {
 		fmt.Fprintf(&serviceVars, "\t%sService := services.New%sService(%sRepo)\n", lower, model.Name, lower)
 		fmt.Fprintf(&serverFields, "\t\t%sService: %sService,\n", model.Name, lower)
 	}
+	middlewareImport := ""
+	if mongoMiddlewareEnabled(ctx) {
+		middlewareImport = fmt.Sprintf("\n\t%q", module+"/internal/app/transport/middleware")
+	}
+	handlerSetup := "handler := http.Handler(router)"
+	if ctx.Config.Rest.HTTP.Middleware.RateLimit.Enabled.Bool() {
+		window := ctx.Config.Rest.HTTP.Middleware.RateLimit.Window
+		if window == "" {
+			window = "1m"
+		}
+		handlerSetup += fmt.Sprintf("\n\thandler = middleware.RateLimit(%d, mustDuration(%q), handler)", ctx.Config.Rest.HTTP.Middleware.RateLimit.RequestsPerWindow, window)
+	}
+	if ctx.Config.Rest.HTTP.Middleware.CORS.Enabled.Bool() {
+		handlerSetup += "\n\thandler = middleware.CORS(handler)"
+	}
+	if ctx.Config.Rest.HTTP.Middleware.SecurityHeaders.Enabled.Bool() {
+		handlerSetup += "\n\thandler = middleware.SecurityHeaders(handler)"
+	}
 	return fmt.Sprintf(`package main
 
 import (
@@ -174,6 +196,7 @@ import (
 	"%s/internal/app/repository/mongorepo"
 	"%s/internal/app/services"
 	"%s/internal/app/transport/httpserver"
+%s
 )
 
 func main() {
@@ -216,9 +239,10 @@ func run() error {
 		JWTRoleClaim: %q,
 	}
 	httpServer.RegisterRoutes(router)
+	%s
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", %q),
-		Handler:           router,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	log.Printf("listening on %%s", server.Addr)
@@ -231,7 +255,15 @@ func env(key, fallback string) string {
 	}
 	return fallback
 }
-`, module, module, module, mongoTimeout(ctx), ctx.Config.Mongo.Connection.Database, repoVars.String(), serviceVars.String(), serverFields.String(), mongoAuthBasicUsernameEnv(ctx), mongoAuthBasicPasswordEnv(ctx), mongoAuthBasicRealm(ctx), mongoQuotedSlice(mongoAuthBasicRoles(ctx)), mongoAuthJWTSecretEnv(ctx), mongoAuthJWTHeader(ctx), mongoAuthJWTScheme(ctx), mongoAuthJWTIssuer(ctx), mongoAuthJWTAudience(ctx), mongoAuthRoleClaim(ctx), mongoHTTPAddr(ctx))
+
+func mustDuration(value string) time.Duration {
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		panic(err)
+	}
+	return duration
+}
+`, module, module, module, middlewareImport, mongoTimeout(ctx), ctx.Config.Mongo.Connection.Database, repoVars.String(), serviceVars.String(), serverFields.String(), mongoAuthBasicUsernameEnv(ctx), mongoAuthBasicPasswordEnv(ctx), mongoAuthBasicRealm(ctx), mongoQuotedSlice(mongoAuthBasicRoles(ctx)), mongoAuthJWTSecretEnv(ctx), mongoAuthJWTHeader(ctx), mongoAuthJWTScheme(ctx), mongoAuthJWTIssuer(ctx), mongoAuthJWTAudience(ctx), mongoAuthRoleClaim(ctx), handlerSetup, mongoHTTPAddr(ctx))
 }
 
 func mongoServerResponseSource() string {
@@ -284,6 +316,135 @@ func writeError(w http.ResponseWriter, status int, code string, err error) {
 	writeJSON(w, status, response)
 }
 `
+}
+
+func mongoMiddlewareEnabled(ctx Context) bool {
+	middleware := ctx.Config.Rest.HTTP.Middleware
+	return middleware.CORS.Enabled.Bool() || middleware.SecurityHeaders.Enabled.Bool() || middleware.RateLimit.Enabled.Bool()
+}
+
+func mongoMiddlewareSource(ctx Context) string {
+	middleware := ctx.Config.Rest.HTTP.Middleware
+	corsEnabled := middleware.CORS.Enabled.Bool()
+	securityEnabled := middleware.SecurityHeaders.Enabled.Bool()
+	rateEnabled := middleware.RateLimit.Enabled.Bool()
+	origins := mongoBoolMapEntries(middleware.CORS.AllowOrigins)
+	methods := strings.Join(middleware.CORS.AllowMethods, ", ")
+	headers := strings.Join(middleware.CORS.AllowHeaders, ", ")
+	exposeHeaders := strings.Join(middleware.CORS.ExposeHeaders, ", ")
+	maxAge := ""
+	if middleware.CORS.MaxAge != "" {
+		if duration, err := time.ParseDuration(middleware.CORS.MaxAge); err == nil {
+			maxAge = strconv.FormatInt(int64(duration.Seconds()), 10)
+		}
+	}
+	return fmt.Sprintf(`package middleware
+
+import (
+	"fmt"
+	"net"
+	"net/http"
+	"sync"
+	"time"
+)
+
+func CORS(next http.Handler) http.Handler {
+	if !%t {
+		return next
+	}
+	allowed := map[string]bool{%s}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if allowed["*"] {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if allowed[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Add("Vary", "Origin")
+		}
+		w.Header().Set("Access-Control-Allow-Headers", %q)
+		w.Header().Set("Access-Control-Allow-Methods", %q)
+		if %q != "" {
+			w.Header().Set("Access-Control-Expose-Headers", %q)
+		}
+		if %t {
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+		if %q != "" {
+			w.Header().Set("Access-Control-Max-Age", %q)
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func SecurityHeaders(next http.Handler) http.Handler {
+	if !%t {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		setHeader(w, "X-Content-Type-Options", %q)
+		setHeader(w, "X-Frame-Options", %q)
+		setHeader(w, "Referrer-Policy", %q)
+		setHeader(w, "Permissions-Policy", %q)
+		setHeader(w, "Content-Security-Policy", %q)
+		setHeader(w, "Strict-Transport-Security", %q)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func setHeader(w http.ResponseWriter, name, value string) {
+	if value != "" {
+		w.Header().Set(name, value)
+	}
+}
+
+func RateLimit(requestsPerWindow int, window time.Duration, next http.Handler) http.Handler {
+	if !%t || requestsPerWindow < 1 || window <= 0 {
+		return next
+	}
+	type bucket struct {
+		start time.Time
+		count int
+	}
+	var mu sync.Mutex
+	buckets := map[string]bucket{}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now()
+		key := clientIP(r)
+		mu.Lock()
+		current := buckets[key]
+		if current.start.IsZero() || now.Sub(current.start) >= window {
+			current = bucket{start: now}
+		}
+		current.count++
+		buckets[key] = current
+		limited := current.count > requestsPerWindow
+		for key, value := range buckets {
+			if now.Sub(value.start) >= window*2 {
+				delete(buckets, key)
+			}
+		}
+		mu.Unlock()
+		if limited {
+			w.Header().Set("Retry-After", fmt.Sprintf("%%.0f", window.Seconds()))
+			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
+}
+`, corsEnabled, origins, headers, methods, exposeHeaders, exposeHeaders, middleware.CORS.AllowCredentials, maxAge, maxAge, securityEnabled, middleware.SecurityHeaders.ContentTypeOptions, middleware.SecurityHeaders.FrameOptions, middleware.SecurityHeaders.ReferrerPolicy, middleware.SecurityHeaders.PermissionsPolicy, middleware.SecurityHeaders.ContentSecurityPolicy, middleware.SecurityHeaders.StrictTransportSecurity, rateEnabled)
 }
 
 func mongoDomainSource() string {
@@ -1353,6 +1514,14 @@ func mongoQuotedSlice(values []string) string {
 		quoted = append(quoted, strconv.Quote(value))
 	}
 	return strings.Join(quoted, ", ")
+}
+
+func mongoBoolMapEntries(values []string) string {
+	entries := make([]string, 0, len(values))
+	for _, value := range values {
+		entries = append(entries, strconv.Quote(value)+": true")
+	}
+	return strings.Join(entries, ", ")
 }
 
 func mongoAuthJWTSecretEnv(ctx Context) string {

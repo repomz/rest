@@ -3,11 +3,16 @@ package generator
 const httpMiddlewareTemplate = `package middleware
 
 import (
-	{{- if and .Features.HTTP.Recovery .Features.HTTP.RecoveryExposeDetails }}
+	{{- if or (and .Features.HTTP.Recovery .Features.HTTP.RecoveryExposeDetails) .Features.HTTP.RateLimit }}
 	"fmt"
 	{{- end }}
 	{{- if .Features.HTTP.Recovery }}
 	"log"
+	{{- end }}
+	{{- if .Features.HTTP.RateLimit }}
+	"net"
+	"sync"
+	"time"
 	{{- end }}
 	"net/http"
 	{{- if .Features.HTTP.RequestID }}
@@ -47,6 +52,78 @@ func CORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+{{- end }}
+
+{{- if .Features.HTTP.SecurityHeaders }}
+func SecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		{{- if .Features.HTTP.ContentTypeOptions }}
+		w.Header().Set("X-Content-Type-Options", {{ printf "%q" .Features.HTTP.ContentTypeOptions }})
+		{{- end }}
+		{{- if .Features.HTTP.FrameOptions }}
+		w.Header().Set("X-Frame-Options", {{ printf "%q" .Features.HTTP.FrameOptions }})
+		{{- end }}
+		{{- if .Features.HTTP.ReferrerPolicy }}
+		w.Header().Set("Referrer-Policy", {{ printf "%q" .Features.HTTP.ReferrerPolicy }})
+		{{- end }}
+		{{- if .Features.HTTP.PermissionsPolicy }}
+		w.Header().Set("Permissions-Policy", {{ printf "%q" .Features.HTTP.PermissionsPolicy }})
+		{{- end }}
+		{{- if .Features.HTTP.ContentSecurityPolicy }}
+		w.Header().Set("Content-Security-Policy", {{ printf "%q" .Features.HTTP.ContentSecurityPolicy }})
+		{{- end }}
+		{{- if .Features.HTTP.HSTS }}
+		w.Header().Set("Strict-Transport-Security", {{ printf "%q" .Features.HTTP.HSTS }})
+		{{- end }}
+		next.ServeHTTP(w, r)
+	})
+}
+{{- end }}
+
+{{- if .Features.HTTP.RateLimit }}
+func RateLimit(requestsPerWindow int, window time.Duration, next http.Handler) http.Handler {
+	if requestsPerWindow < 1 || window <= 0 {
+		return next
+	}
+	type bucket struct {
+		start time.Time
+		count int
+	}
+	var mu sync.Mutex
+	buckets := map[string]bucket{}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now()
+		key := clientIP(r)
+		mu.Lock()
+		current := buckets[key]
+		if current.start.IsZero() || now.Sub(current.start) >= window {
+			current = bucket{start: now}
+		}
+		current.count++
+		buckets[key] = current
+		limited := current.count > requestsPerWindow
+		for key, value := range buckets {
+			if now.Sub(value.start) >= window*2 {
+				delete(buckets, key)
+			}
+		}
+		mu.Unlock()
+		if limited {
+			w.Header().Set("Retry-After", fmt.Sprintf("%.0f", window.Seconds()))
+			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
 }
 {{- end }}
 

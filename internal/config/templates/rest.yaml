@@ -42,7 +42,7 @@ http:
       header: X-Request-ID
     cors:
       enabled: true
-      allow_origins: ["*"]            # Примеры: ["*"] или ["https://example.com"].
+      allow_origins: ["http://localhost:3000", "https://example.com"] # Production-safe default: укажите свои origins; избегайте ["*"].
       allow_methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
       allow_headers: [Authorization, Content-Type, X-Request-ID]
       expose_headers: [X-Request-ID]
@@ -51,6 +51,18 @@ http:
     recovery:
       enabled: true
       expose_details: false           # true удобно локально, но небезопасно в production.
+    security_headers:
+      enabled: true
+      content_type_options: nosniff
+      frame_options: DENY
+      referrer_policy: no-referrer
+      permissions_policy: "geolocation=(), microphone=(), camera=()"
+      content_security_policy: "default-src 'self'; frame-ancestors 'none'"
+      strict_transport_security: ""    # Пример для HTTPS: "max-age=31536000; includeSubDomains".
+    rate_limit:
+      enabled: true
+      requests_per_window: 120         # Per-client-IP fixed window limit.
+      window: 1m                       # Формат Go duration.
 
 # ------------------------------------------------------------------------------
 # DATA SOURCES AND AUTHORIZATION

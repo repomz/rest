@@ -52,9 +52,11 @@ type Health struct {
 	Path    string  `yaml:"path"`
 }
 type Middleware struct {
-	RequestID RequestID `yaml:"request_id"`
-	CORS      CORS      `yaml:"cors"`
-	Recovery  Recovery  `yaml:"recovery"`
+	RequestID       RequestID       `yaml:"request_id"`
+	CORS            CORS            `yaml:"cors"`
+	Recovery        Recovery        `yaml:"recovery"`
+	SecurityHeaders SecurityHeaders `yaml:"security_headers"`
+	RateLimit       RateLimit       `yaml:"rate_limit"`
 }
 type RequestID struct {
 	Enabled Enabled `yaml:"enabled"`
@@ -72,6 +74,20 @@ type CORS struct {
 	ExposeHeaders    []string `yaml:"expose_headers"`
 	AllowCredentials bool     `yaml:"allow_credentials"`
 	MaxAge           string   `yaml:"max_age"`
+}
+type SecurityHeaders struct {
+	Enabled                 Enabled `yaml:"enabled"`
+	ContentTypeOptions      string  `yaml:"content_type_options"`
+	FrameOptions            string  `yaml:"frame_options"`
+	ReferrerPolicy          string  `yaml:"referrer_policy"`
+	PermissionsPolicy       string  `yaml:"permissions_policy"`
+	ContentSecurityPolicy   string  `yaml:"content_security_policy"`
+	StrictTransportSecurity string  `yaml:"strict_transport_security"`
+}
+type RateLimit struct {
+	Enabled           Enabled `yaml:"enabled"`
+	RequestsPerWindow int     `yaml:"requests_per_window"`
+	Window            string  `yaml:"window"`
 }
 
 type Logging struct {

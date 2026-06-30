@@ -521,8 +521,20 @@ func TestLoadFeatureSwitches(t *testing.T) {
 	if bundle.SQL.SQLC.Enabled.Bool() || !bundle.SQL.SQLC.Example.Bool() {
 		t.Fatalf("unexpected canonical SQLC switches: %+v", bundle.SQL.SQLC)
 	}
-	if !bundle.Rest.HTTP.Middleware.Recovery.Enabled.Bool() || !bundle.Rest.HTTP.Middleware.CORS.Enabled.Bool() {
+	if !bundle.Rest.HTTP.Middleware.Recovery.Enabled.Bool() || !bundle.Rest.HTTP.Middleware.CORS.Enabled.Bool() || !bundle.Rest.HTTP.Middleware.SecurityHeaders.Enabled.Bool() || !bundle.Rest.HTTP.Middleware.RateLimit.Enabled.Bool() {
 		t.Fatal("HTTP middleware switches were not loaded")
+	}
+	if bundle.Rest.HTTP.Middleware.CORS.AllowCredentials {
+		t.Fatal("canonical CORS must not allow credentials by default")
+	}
+	if len(bundle.Rest.HTTP.Middleware.CORS.AllowOrigins) == 0 || bundle.Rest.HTTP.Middleware.CORS.AllowOrigins[0] == "*" {
+		t.Fatalf("canonical CORS must use explicit origins, got %v", bundle.Rest.HTTP.Middleware.CORS.AllowOrigins)
+	}
+	if bundle.Rest.HTTP.Middleware.SecurityHeaders.ContentTypeOptions != "nosniff" {
+		t.Fatalf("security headers were not loaded: %+v", bundle.Rest.HTTP.Middleware.SecurityHeaders)
+	}
+	if bundle.Rest.HTTP.Middleware.RateLimit.RequestsPerWindow < 1 || bundle.Rest.HTTP.Middleware.RateLimit.Window == "" {
+		t.Fatalf("rate limit was not loaded: %+v", bundle.Rest.HTTP.Middleware.RateLimit)
 	}
 	if !bundle.Rest.Logging.Enabled.Bool() || !bundle.Rest.OpenAPI.Enabled.Bool() {
 		t.Fatal("logging and OpenAPI must be enabled by the canonical config")

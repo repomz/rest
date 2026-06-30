@@ -3,7 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net"
@@ -62,8 +65,12 @@ func TestRuntimeE2EPostgresJWTAuthRBACSwagger(t *testing.T) {
 
 	baseURL := "http://" + addr
 	waitRuntimeHTTP(t, baseURL+"/swagger/openapi.yaml", http.StatusOK, "")
+	assertRuntimeSecurityHeaders(t, httpRequest(t, http.MethodGet, baseURL+"/swagger/openapi.yaml", "", nil))
 
 	assertRuntimeStatus(t, httpRequest(t, http.MethodGet, baseURL+"/items", "", nil), http.StatusUnauthorized)
+	assertRuntimeStatus(t, httpRequest(t, http.MethodGet, baseURL+"/items", "Bearer malformed.token", nil), http.StatusUnauthorized)
+	assertRuntimeStatus(t, httpRequest(t, http.MethodGet, baseURL+"/items", "Bearer "+runtimeJWT(t, "wrong-secret", time.Now().Add(15*time.Minute), []string{"admin"}), nil), http.StatusUnauthorized)
+	assertRuntimeStatus(t, httpRequest(t, http.MethodGet, baseURL+"/items", "Bearer "+runtimeJWT(t, "runtime-secret", time.Now().Add(-time.Minute), []string{"admin"}), nil), http.StatusUnauthorized)
 	assertRuntimeStatus(t, httpRequest(t, http.MethodPost, baseURL+"/signup", "", map[string]any{"username": "viewer", "password": "secret"}), http.StatusOK)
 	viewerToken := runtimeSignIn(t, baseURL, "viewer", "secret")
 	assertRuntimeStatus(t, httpRequest(t, http.MethodGet, baseURL+"/items", "Bearer "+viewerToken, nil), http.StatusUnauthorized)
@@ -126,8 +133,11 @@ func TestRuntimeE2EMongoBasicAuthCRUDSwagger(t *testing.T) {
 
 	baseURL := "http://" + addr
 	waitRuntimeHTTP(t, baseURL+"/swagger/openapi.yaml", http.StatusOK, "")
+	assertRuntimeSecurityHeaders(t, httpRequest(t, http.MethodGet, baseURL+"/swagger/openapi.yaml", "", nil))
 
 	assertRuntimeStatus(t, httpRequest(t, http.MethodGet, baseURL+"/items", "", nil), http.StatusUnauthorized)
+	assertRuntimeStatus(t, httpRequest(t, http.MethodGet, baseURL+"/items", "Basic "+basicAuth("admin", "wrong"), nil), http.StatusUnauthorized)
+	assertRuntimeStatus(t, httpRequest(t, http.MethodGet, baseURL+"/items", "Basic not-base64", nil), http.StatusUnauthorized)
 	assertRuntimeStatus(t, httpRequest(t, http.MethodPost, baseURL+"/items", "Basic "+basicAuth("admin", "secret"), map[string]any{"title": "runtime mongo", "status": "draft"}), http.StatusOK)
 	itemsResponse := httpRequest(t, http.MethodGet, baseURL+"/items", "Basic "+basicAuth("admin", "secret"), nil)
 	assertRuntimeStatus(t, itemsResponse, http.StatusOK)
@@ -145,6 +155,7 @@ func TestRuntimeE2EMongoBasicAuthCRUDSwagger(t *testing.T) {
 
 type runtimeResponse struct {
 	Status int
+	Header http.Header
 	Body   []byte
 }
 
@@ -256,13 +267,27 @@ func httpRequest(t *testing.T, method, url, auth string, body any) runtimeRespon
 	if err != nil {
 		t.Fatal(err)
 	}
-	return runtimeResponse{Status: resp.StatusCode, Body: data}
+	return runtimeResponse{Status: resp.StatusCode, Header: resp.Header.Clone(), Body: data}
 }
 
 func assertRuntimeStatus(t *testing.T, response runtimeResponse, status int) {
 	t.Helper()
 	if response.Status != status {
 		t.Fatalf("status = %d, want %d; body:\n%s", response.Status, status, response.Body)
+	}
+}
+
+func assertRuntimeSecurityHeaders(t *testing.T, response runtimeResponse) {
+	t.Helper()
+	assertRuntimeStatus(t, response, http.StatusOK)
+	for name, want := range map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
+		"Referrer-Policy":        "no-referrer",
+	} {
+		if got := response.Header.Get(name); got != want {
+			t.Fatalf("security header %s = %q, want %q", name, got, want)
+		}
 	}
 }
 
@@ -359,7 +384,29 @@ func setRuntimeUserRoles(t *testing.T, dsn, username, roles string) {
 }
 
 func basicAuth(username, password string) string {
-	return "YWRtaW46c2VjcmV0" // base64("admin:secret"); keep stable for generated runtime assertions.
+	return base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+}
+
+func runtimeJWT(t *testing.T, secret string, expiresAt time.Time, roles []string) string {
+	t.Helper()
+	header := map[string]any{"alg": "HS256", "typ": "JWT"}
+	claims := map[string]any{
+		"exp":   expiresAt.Unix(),
+		"iat":   time.Now().Unix(),
+		"roles": roles,
+	}
+	headerJSON, err := json.Marshal(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signingInput := base64.RawURLEncoding.EncodeToString(headerJSON) + "." + base64.RawURLEncoding.EncodeToString(claimsJSON)
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(signingInput))
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 func writeRuntimeSQLCProject(t *testing.T, projectDir string) {
