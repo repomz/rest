@@ -22,7 +22,7 @@ const generationContractVersion = "auth-v6"
 func generationFingerprint(ctx Context) (string, error) {
 	paths := []string{filepath.Join(ctx.ConfigDir, "rest.yaml")}
 	if ctx.Config.Rest.SQL.Bool() {
-		paths = append(paths, filepath.Join(ctx.ConfigDir, "sqlc_rest.yaml"))
+		paths = append(paths, filepath.Join(ctx.ConfigDir, "rest_sqlc.yaml"))
 	}
 	if ctx.Config.Rest.Mongo.Bool() {
 		paths = append(paths, filepath.Join(ctx.ConfigDir, "mongo_rest.yaml"))

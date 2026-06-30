@@ -55,7 +55,7 @@ http:
 # ------------------------------------------------------------------------------
 # DATA SOURCES AND AUTHORIZATION
 # ------------------------------------------------------------------------------
-# Детальные настройки находятся в sqlc_rest.yaml и mongo_rest.yaml.
+# Детальные настройки находятся в rest_sqlc.yaml и mongo_rest.yaml.
 # При auth: enable файл auth_rest.yaml создаётся первым rest gen после обнаружения endpoint-ов.
 sql: enable
 auto_sqlc: enable                    # При rest gen автоматически выполняет: sqlc generate -f <sqlc_path>.

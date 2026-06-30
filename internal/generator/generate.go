@@ -9,7 +9,7 @@ import (
 
 func Generate(opts Options) error {
 	if opts.SQLCPath == "" {
-		opts.SQLCPath = "sqlc/sqlc.yaml"
+		opts.SQLCPath = "rest_sqlc/rest_sqlc.yaml"
 	}
 	if opts.OutDir == "" {
 		opts.OutDir = "."

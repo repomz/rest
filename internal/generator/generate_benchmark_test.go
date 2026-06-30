@@ -33,7 +33,7 @@ func createGenerateBenchmarkProject(b *testing.B, tableCount int) (string, strin
 	b.Helper()
 
 	root := b.TempDir()
-	sqlcDir := filepath.Join(root, "sqlc")
+	sqlcDir := filepath.Join(root, "rest_sqlc")
 	schemaDir := filepath.Join(sqlcDir, "schema")
 	queriesDir := filepath.Join(sqlcDir, "queries")
 	dbDir := filepath.Join(root, "internal", "app", "db")
@@ -54,7 +54,7 @@ sql:
         package: db
         out: ../internal/app/db
 `
-	sqlcPath := filepath.Join(sqlcDir, "sqlc.yaml")
+	sqlcPath := filepath.Join(sqlcDir, "rest_sqlc.yaml")
 	writeBenchmarkFile(b, sqlcPath, sqlcConfig)
 
 	var schema strings.Builder

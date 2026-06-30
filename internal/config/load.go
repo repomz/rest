@@ -19,7 +19,7 @@ func Load(dir string) (Bundle, error) {
 	bundle := Bundle{Dir: dir, Rest: rest}
 	if rest.SQL.Bool() {
 		var sql SQL
-		if err := readYAML(filepath.Join(dir, "sqlc_rest.yaml"), &sql); err != nil {
+		if err := readYAML(filepath.Join(dir, "rest_sqlc.yaml"), &sql); err != nil {
 			return Bundle{}, err
 		}
 		if sql.Connection.UserPassword == "" {

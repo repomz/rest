@@ -51,7 +51,7 @@ func (g Generator) Generate(configDir string) error {
 		}
 	}
 	if !hasEnabledFeature {
-		return fmt.Errorf("no implemented generation feature is enabled; set sqlc.enable to enable in sqlc_rest.yaml after preparing SQLC files; Mongo code generation is not implemented yet")
+		return fmt.Errorf("no implemented generation feature is enabled; set sqlc.enable to enable in rest_sqlc.yaml after preparing SQLC files; Mongo code generation is not implemented yet")
 	}
 	if err := runAutoSQLC(ctx); err != nil {
 		return err
@@ -640,7 +640,7 @@ func (SQLFeature) Enabled(ctx Context) bool {
 
 func (SQLFeature) Generate(ctx Context) error {
 	if ctx.Config.SQL == nil {
-		return fmt.Errorf("sqlc_rest.yaml is required when sql is enabled")
+		return fmt.Errorf("rest_sqlc.yaml is required when sql is enabled")
 	}
 	sqlcPath := ctx.Config.SQL.SQLC.Path
 	sqlcPath = resolveSQLCPath(ctx.ConfigDir, sqlcPath)

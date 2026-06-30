@@ -26,9 +26,9 @@ db_connection:
 engine: sqlc                         # Сейчас поддерживается: sqlc.
 sqlc:
   enable: disable                    # Включить SQLC-ветку при выполнении rest gen.
-  sqlc_example: enable               # Маркер доступности встроенного примера; режим выбирается командой rest init --example.
+  rest_sqlc_example: enable          # Маркер доступности встроенного примера; режим выбирается командой rest init --example.
   # Путь относительно каталога rest_config либо абсолютный путь.
-  sqlc_path: ../sqlc/sqlc.yaml
+  sqlc_path: ../rest_sqlc/rest_sqlc.yaml
 
 # ------------------------------------------------------------------------------
 # MIGRATIONS

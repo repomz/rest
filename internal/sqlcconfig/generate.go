@@ -42,7 +42,7 @@ func RemoveExample(root string) error {
 	if root == "" {
 		root = "."
 	}
-	return os.RemoveAll(filepath.Join(root, "sqlc_example"))
+	return os.RemoveAll(filepath.Join(root, "rest_sqlc_example"))
 }
 
 func generate(root, templateRoot string) error {

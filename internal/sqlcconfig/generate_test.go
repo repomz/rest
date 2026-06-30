@@ -13,12 +13,12 @@ func TestGenerateProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	checks := map[string]string{
-		"sqlc/sqlc.yaml":        `- "queries"`,
-		"sqlc/schema/item.sql":  "CREATE TABLE items",
-		"sqlc/queries/item.sql": "-- name: CreateItem :one",
+		"rest_sqlc/rest_sqlc.yaml":   `- "queries"`,
+		"rest_sqlc/schema/item.sql":  "CREATE TABLE items",
+		"rest_sqlc/queries/item.sql": "-- name: CreateItem :one",
 	}
-	if _, err := os.Stat(filepath.Join(dir, "sqlc.yaml")); !os.IsNotExist(err) {
-		t.Fatalf("only sqlc/sqlc.yaml must be generated, got root file: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "rest_sqlc.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("only rest_sqlc/rest_sqlc.yaml must be generated, got root file: %v", err)
 	}
 	for path, expected := range checks {
 		content, err := os.ReadFile(filepath.Join(dir, path))
@@ -40,9 +40,9 @@ func TestGenerateExample(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
-		"sqlc_example/sqlc.yaml",
-		"sqlc_example/schema/studies.sql",
-		"sqlc_example/queries/studies.sql",
+		"rest_sqlc_example/rest_sqlc.yaml",
+		"rest_sqlc_example/schema/studies.sql",
+		"rest_sqlc_example/queries/studies.sql",
 	} {
 		if _, err := os.Stat(filepath.Join(dir, path)); err != nil {
 			t.Fatal(err)
@@ -58,7 +58,7 @@ func TestRemoveExample(t *testing.T) {
 	if err := RemoveExample(dir); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "sqlc_example")); !os.IsNotExist(err) {
-		t.Fatalf("expected sqlc_example to be removed, got %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "rest_sqlc_example")); !os.IsNotExist(err) {
+		t.Fatalf("expected rest_sqlc_example to be removed, got %v", err)
 	}
 }

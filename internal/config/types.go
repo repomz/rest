@@ -192,7 +192,7 @@ type SQL struct {
 }
 type SQLC struct {
 	Enabled Enabled `yaml:"enable"`
-	Example Enabled `yaml:"sqlc_example"`
+	Example Enabled `yaml:"rest_sqlc_example"`
 	Path    string  `yaml:"sqlc_path"`
 }
 type DBConnection struct {

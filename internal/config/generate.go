@@ -82,10 +82,10 @@ func configFiles(mode configMode) ([]configFile, error) {
 		if err != nil {
 			return err
 		}
-		if mode != configModeDefault && filepath.Base(path) == "sqlc_rest.yaml" {
+		if mode != configModeDefault && filepath.Base(path) == "rest_sqlc.yaml" {
 			content = []byte(strings.Replace(string(content), "  enable: disable", "  enable: enable", 1))
 			if mode == configModeExample {
-				content = []byte(strings.Replace(string(content), "  sqlc_path: ../sqlc/sqlc.yaml", "  sqlc_path: ../sqlc_example/sqlc.yaml", 1))
+				content = []byte(strings.Replace(string(content), "  sqlc_path: ../rest_sqlc/rest_sqlc.yaml", "  sqlc_path: ../rest_sqlc_example/rest_sqlc.yaml", 1))
 			}
 		}
 		files = append(files, configFile{name: filepath.ToSlash(path), content: content})

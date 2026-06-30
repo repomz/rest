@@ -20,8 +20,8 @@ func TestValidateConfigRequiresGracefulShutdown(t *testing.T) {
 }
 
 func TestResolveSQLCPathUsesConfigDir(t *testing.T) {
-	got := resolveSQLCPath("/project/rest_config", "../sqlc/sqlc.yaml")
-	want := "/project/sqlc/sqlc.yaml"
+	got := resolveSQLCPath("/project/rest_config", "../rest_sqlc/rest_sqlc.yaml")
+	want := "/project/rest_sqlc/rest_sqlc.yaml"
 	if got != want {
 		t.Fatalf("sqlc path = %q, want %q", got, want)
 	}

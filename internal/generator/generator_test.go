@@ -165,7 +165,7 @@ WHERE (sqlc.narg('surgeon')::text IS NULL OR surgeon = sqlc.narg('surgeon'))
 
 func TestReadSQLCConfigResolvesPathsFromConfigDirectory(t *testing.T) {
 	projectDir := t.TempDir()
-	configDir := filepath.Join(projectDir, "sqlc")
+	configDir := filepath.Join(projectDir, "rest_sqlc")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ sql:
         package: db
         out: ../internal/app/db
 `
-	configPath := filepath.Join(configDir, "sqlc.yaml")
+	configPath := filepath.Join(configDir, "rest_sqlc.yaml")
 	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -50,7 +50,7 @@ func TestGeneratedConfigsKeepDocumentation(t *testing.T) {
 	if err := Generate(dir); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"rest.yaml", "sqlc_rest.yaml", "mongo_rest.yaml", "rest_mongo/rest_cheatsheet.yaml", "rest_mongo/rest_user_example.yaml"} {
+	for _, name := range []string{"rest.yaml", "rest_sqlc.yaml", "mongo_rest.yaml", "rest_mongo/rest_cheatsheet.yaml", "rest_mongo/rest_user_example.yaml"} {
 		content, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
@@ -67,7 +67,7 @@ func TestGenerateForSQLCEnablesSQLC(t *testing.T) {
 	if err := GenerateForSQLC(dir); err != nil {
 		t.Fatal(err)
 	}
-	content, err := os.ReadFile(filepath.Join(dir, "sqlc_rest.yaml"))
+	content, err := os.ReadFile(filepath.Join(dir, "rest_sqlc.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,13 +81,13 @@ func TestGenerateForExampleUsesExampleSQLCPath(t *testing.T) {
 	if err := GenerateForExample(dir); err != nil {
 		t.Fatal(err)
 	}
-	content, err := os.ReadFile(filepath.Join(dir, "sqlc_rest.yaml"))
+	content, err := os.ReadFile(filepath.Join(dir, "rest_sqlc.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(content)
-	if !strings.Contains(text, "  enable: enable") || !strings.Contains(text, "  sqlc_path: ../sqlc_example/sqlc.yaml") {
-		t.Fatalf("example config must enable SQLC and point to sqlc_example:\n%s", content)
+	if !strings.Contains(text, "  enable: enable") || !strings.Contains(text, "  sqlc_path: ../rest_sqlc_example/rest_sqlc.yaml") {
+		t.Fatalf("example config must enable SQLC and point to rest_sqlc_example:\n%s", content)
 	}
 }
 
@@ -440,8 +440,8 @@ func TestSQLConfigSupportsLegacyPasswordKey(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "rest.yaml"), []byte("sql: enabled\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sqlConfig := "db_connection:\n  usere_password: legacy-secret\nsqlc:\n  sqlc_path: sqlc.yaml\n"
-	if err := os.WriteFile(filepath.Join(dir, "sqlc_rest.yaml"), []byte(sqlConfig), 0o644); err != nil {
+	sqlConfig := "db_connection:\n  usere_password: legacy-secret\nsqlc:\n  sqlc_path: rest_sqlc.yaml\n"
+	if err := os.WriteFile(filepath.Join(dir, "rest_sqlc.yaml"), []byte(sqlConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	bundle, err := Load(dir)

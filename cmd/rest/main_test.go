@@ -138,20 +138,20 @@ func TestRunInitModes(t *testing.T) {
 	}{
 		{
 			name:       "configs only",
-			want:       []string{"rest_config/rest.yaml", "rest_config/sqlc_rest.yaml", "rest_config/mongo_rest.yaml", "rest_config/rest_mongo/rest_cheatsheet.yaml", "rest_config/rest_mongo/rest_user_example.yaml"},
-			wantAbsent: []string{"rest_config/auth_rest.yaml", "sqlc/sqlc.yaml", "sqlc_example/schema/studies.sql"},
+			want:       []string{"rest_config/rest.yaml", "rest_config/rest_sqlc.yaml", "rest_config/mongo_rest.yaml", "rest_config/rest_mongo/rest_cheatsheet.yaml", "rest_config/rest_mongo/rest_user_example.yaml"},
+			wantAbsent: []string{"rest_config/auth_rest.yaml", "rest_config/sqlc_rest.yaml", "sqlc/sqlc.yaml", "sqlc_example/schema/studies.sql", "rest_sqlc/rest_sqlc.yaml", "rest_sqlc_example/schema/studies.sql"},
 		},
 		{
 			name:       "sqlc",
 			args:       []string{"--sqlc"},
-			want:       []string{"rest_config/rest.yaml", "rest_config/rest_mongo/rest_cheatsheet.yaml", "rest_config/rest_mongo/rest_user_example.yaml", "sqlc/sqlc.yaml", "sqlc/schema/item.sql", "sqlc/queries/item.sql"},
-			wantAbsent: []string{"rest_config/auth_rest.yaml", "sqlc_example/schema/studies.sql"},
+			want:       []string{"rest_config/rest.yaml", "rest_config/rest_mongo/rest_cheatsheet.yaml", "rest_config/rest_mongo/rest_user_example.yaml", "rest_sqlc/rest_sqlc.yaml", "rest_sqlc/schema/item.sql", "rest_sqlc/queries/item.sql"},
+			wantAbsent: []string{"rest_config/auth_rest.yaml", "rest_config/sqlc_rest.yaml", "sqlc/sqlc.yaml", "sqlc_example/schema/studies.sql", "rest_sqlc_example/schema/studies.sql"},
 		},
 		{
 			name:       "example",
 			args:       []string{"--example"},
-			want:       []string{"rest_config/rest.yaml", "rest_config/rest_mongo/rest_cheatsheet.yaml", "rest_config/rest_mongo/rest_user_example.yaml", "sqlc_example/sqlc.yaml", "sqlc_example/schema/studies.sql", "sqlc_example/queries/studies.sql"},
-			wantAbsent: []string{"rest_config/auth_rest.yaml", "sqlc/sqlc.yaml", "sqlc/schema/item.sql", "sqlc/queries/item.sql"},
+			want:       []string{"rest_config/rest.yaml", "rest_config/rest_mongo/rest_cheatsheet.yaml", "rest_config/rest_mongo/rest_user_example.yaml", "rest_sqlc_example/rest_sqlc.yaml", "rest_sqlc_example/schema/studies.sql", "rest_sqlc_example/queries/studies.sql"},
+			wantAbsent: []string{"rest_config/auth_rest.yaml", "rest_config/sqlc_rest.yaml", "sqlc/sqlc.yaml", "sqlc_example/schema/studies.sql", "rest_sqlc/rest_sqlc.yaml", "rest_sqlc/schema/item.sql", "rest_sqlc/queries/item.sql"},
 		},
 	}
 	for _, test := range tests {

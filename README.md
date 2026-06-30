@@ -58,7 +58,7 @@ Use an existing SQLC project:
 
 ```bash
 rest init
-# Set enable: enable and a valid sqlc_path in rest_config/sqlc_rest.yaml.
+# Set enable: enable and a valid sqlc_path in rest_config/rest_sqlc.yaml.
 rest gen
 ```
 
@@ -67,8 +67,8 @@ rest gen
 | Command | Description |
 | --- | --- |
 | `rest init` | Create `rest_config/*.yaml` |
-| `rest init --sqlc` | Create a customizable `sqlc/` project skeleton |
-| `rest init --example` | Create a standalone `sqlc_example/` project |
+| `rest init --sqlc` | Create a customizable `rest_sqlc/` project skeleton |
+| `rest init --example` | Create a standalone `rest_sqlc_example/` project |
 | `rest init --path path` | Initialize another directory |
 | `rest gen` | Generate the REST application |
 | `rest gen --path path` | Use another configuration directory |
