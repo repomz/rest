@@ -2,29 +2,19 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"testing"
 )
 
 func TestE2EInitSQLCGenerateAndTestGeneratedProject(t *testing.T) {
-	projectDir := filepath.Join(t.TempDir(), "app")
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	withWorkingDir(t, projectDir)
-	if err := run([]string{"init"}); err != nil {
-		t.Fatal(err)
-	}
-	patchE2ERestConfig(t, filepath.Join(projectDir, "rest_config", "rest.yaml"))
-	writeE2ESQLCInputs(t, projectDir)
-	writeE2ESQLCOutput(t, projectDir)
-
-	if err := run([]string{"gen"}); err != nil {
-		t.Fatal(err)
-	}
+	projectDir := generateE2ESQLProject(t)
 	assertDoctorHealthy(t)
 	for _, path := range []string{
 		"cmd/main.go",
@@ -42,17 +32,7 @@ func TestE2EInitSQLCGenerateAndTestGeneratedProject(t *testing.T) {
 }
 
 func TestE2EInitMongoExampleGenerateAndTestGeneratedProject(t *testing.T) {
-	projectDir := filepath.Join(t.TempDir(), "mongo-app")
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	withWorkingDir(t, projectDir)
-	if err := run([]string{"init", "--example", "mongo"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := run([]string{"gen"}); err != nil {
-		t.Fatal(err)
-	}
+	projectDir := generateE2EMongoProject(t)
 	assertDoctorHealthy(t)
 	for _, path := range []string{
 		"cmd/main.go",
@@ -80,6 +60,60 @@ func TestE2EInitMongoExampleGenerateAndTestGeneratedProject(t *testing.T) {
 		}
 	}
 	runGeneratedGoTest(t, projectDir)
+}
+
+func TestE2EGoldenSnapshots(t *testing.T) {
+	sqlDir := generateE2ESQLProject(t)
+	assertGoldenSnapshot(t, "sql.txt", sqlDir)
+	mongoDir := generateE2EMongoProject(t)
+	assertGoldenSnapshot(t, "mongo.txt", mongoDir)
+}
+
+func TestE2EDockerBuildSmoke(t *testing.T) {
+	if os.Getenv("REST_DOCKER_SMOKE") != "1" {
+		t.Skip("set REST_DOCKER_SMOKE=1 to build generated Dockerfiles")
+	}
+	requireBinary(t, "docker")
+	sqlDir := generateE2ESQLProject(t)
+	runDockerBuildSmoke(t, sqlDir, "rest-generator-sql-smoke:test")
+	mongoDir := generateE2EMongoProject(t)
+	runDockerBuildSmoke(t, mongoDir, "rest-generator-mongo-smoke:test")
+}
+
+func generateE2ESQLProject(t *testing.T) string {
+	t.Helper()
+	projectDir := filepath.Join(t.TempDir(), "app")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withWorkingDir(t, projectDir)
+	if err := run([]string{"init"}); err != nil {
+		t.Fatal(err)
+	}
+	patchE2ERestConfig(t, filepath.Join(projectDir, "rest_config", "rest.yaml"))
+	writeE2ESQLCInputs(t, projectDir)
+	writeE2ESQLCOutput(t, projectDir)
+
+	if err := run([]string{"gen"}); err != nil {
+		t.Fatal(err)
+	}
+	return projectDir
+}
+
+func generateE2EMongoProject(t *testing.T) string {
+	t.Helper()
+	projectDir := filepath.Join(t.TempDir(), "mongo-app")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withWorkingDir(t, projectDir)
+	if err := run([]string{"init", "--example", "mongo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"gen"}); err != nil {
+		t.Fatal(err)
+	}
+	return projectDir
 }
 
 func TestE2EInitMongoExampleGeneratesComposeWhenEnabled(t *testing.T) {
@@ -264,4 +298,100 @@ func assertDoctorHealthy(t *testing.T) {
 	var output bytes.Buffer
 	report.Print(&output)
 	t.Fatalf("expected generated project to pass rest doctor without errors:\n%s", output.String())
+}
+
+func assertGoldenSnapshot(t *testing.T, name, projectDir string) {
+	t.Helper()
+	got := generatedSnapshot(t, projectDir)
+	path := goldenSnapshotPath(t, name)
+	if os.Getenv("REST_UPDATE_GOLDEN") == "1" {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden snapshot %s: %v; run REST_UPDATE_GOLDEN=1 make golden to create it", path, err)
+	}
+	if string(want) != got {
+		t.Fatalf("golden snapshot %s mismatch\n--- want\n%s\n--- got\n%s", name, string(want), got)
+	}
+}
+
+func goldenSnapshotPath(t *testing.T, name string) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot resolve e2e test path")
+	}
+	return filepath.Join(filepath.Dir(file), "testdata", "golden", name)
+}
+
+func generatedSnapshot(t *testing.T, projectDir string) string {
+	t.Helper()
+	var lines []string
+	for _, root := range []string{"cmd", "internal", "docs", "curl"} {
+		walkSnapshotRoot(t, projectDir, root, &lines)
+	}
+	for _, path := range []string{"Dockerfile", ".dockerignore", ".env.example", "Makefile", "go.mod", "go.sum"} {
+		appendSnapshotFile(t, projectDir, path, &lines)
+	}
+	sort.Strings(lines)
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func walkSnapshotRoot(t *testing.T, projectDir, root string, lines *[]string) {
+	t.Helper()
+	absRoot := filepath.Join(projectDir, root)
+	if _, err := os.Stat(absRoot); os.IsNotExist(err) {
+		return
+	}
+	if err := filepath.WalkDir(absRoot, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(projectDir, path)
+		if err != nil {
+			return err
+		}
+		appendSnapshotFile(t, projectDir, filepath.ToSlash(rel), lines)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func appendSnapshotFile(t *testing.T, projectDir, path string, lines *[]string) {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(projectDir, filepath.FromSlash(path)))
+	if os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(content)
+	*lines = append(*lines, filepath.ToSlash(path)+" "+hex.EncodeToString(sum[:]))
+}
+
+func runDockerBuildSmoke(t *testing.T, projectDir, tag string) {
+	t.Helper()
+	cmd := exec.Command("docker", "build", "--pull=false", "-t", tag, ".")
+	cmd.Dir = projectDir
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("docker build failed for %s: %v\n%s", tag, err, output.String())
+	}
+	t.Cleanup(func() {
+		_ = exec.Command("docker", "rmi", "-f", tag).Run()
+	})
 }

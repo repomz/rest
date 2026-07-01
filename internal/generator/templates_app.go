@@ -385,6 +385,12 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version:
+          - "1.24.3"
+          - "stable"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -392,7 +398,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.3"
+          go-version: ${{"{{"}} matrix.go-version {{"}}"}}
           cache: true
 
       - name: Format check
@@ -403,6 +409,9 @@ jobs:
 
       - name: Test
         run: go test -race ./...
+
+      - name: Vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
       - name: Build
         run: go build ./cmd

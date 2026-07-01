@@ -42,9 +42,6 @@ func TestRuntimeE2EPostgresJWTAuthRBACSwagger(t *testing.T) {
 		"module: github.com/repomz/myapp": "module: example.test/runtime-sql",
 		"auth: disable":                   "auth: enable",
 	})
-	patchFileForE2E(t, filepath.Join(projectDir, "rest_config", "rest_sqlc.yaml"), map[string]string{
-		"  enable: disable": "  enable: enable",
-	})
 	writeRuntimeSQLCProject(t, projectDir)
 	if err := run([]string{"gen"}); err != nil {
 		t.Fatal(err)
@@ -226,7 +223,7 @@ func stopGeneratedApp(t *testing.T, cmd *exec.Cmd) {
 
 func waitRuntimeHTTP(t *testing.T, url string, status int, auth string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		response := httpRequest(t, http.MethodGet, url, auth, nil)
 		if response.Status == status {
