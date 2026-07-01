@@ -133,6 +133,7 @@ jobs:
   runtime-e2e:
     name: Runtime E2E
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     services:
       postgres:
         image: postgres:17-alpine

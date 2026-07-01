@@ -28,7 +28,7 @@ docker-smoke:
 	REST_DOCKER_SMOKE=1 $(GO) test ./cmd/rest -run 'TestE2EDockerBuildSmoke' -count=1
 
 runtime-e2e:
-	REST_RUNTIME_E2E=1 $(GO) test ./cmd/rest -run 'TestRuntimeE2E' -count=1
+	REST_RUNTIME_E2E=1 $(GO) test ./cmd/rest -run 'TestRuntimeE2E' -count=1 -timeout 6m
 
 check:
 	@test -z "$$(gofmt -l .)" || (gofmt -l . && exit 1)

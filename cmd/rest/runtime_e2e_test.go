@@ -192,12 +192,26 @@ func freeRuntimeAddr(t *testing.T) string {
 
 func startGeneratedApp(t *testing.T, projectDir string, env []string) *exec.Cmd {
 	t.Helper()
+	binaryPath := filepath.Join(t.TempDir(), "generated-app")
+	buildCtx, buildCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer buildCancel()
+	build := exec.CommandContext(buildCtx, "go", "build", "-o", binaryPath, "./cmd")
+	build.Dir = projectDir
+	build.Env = runtimeGeneratedEnv(env)
+	var buildOutput bytes.Buffer
+	build.Stdout = &buildOutput
+	build.Stderr = &buildOutput
+	if err := build.Run(); err != nil {
+		if buildCtx.Err() == context.DeadlineExceeded {
+			t.Fatalf("generated app build timed out after 3m\n%s", buildOutput.String())
+		}
+		t.Fatalf("generated app build failed: %v\n%s", err, buildOutput.String())
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	cmd := exec.CommandContext(ctx, "go", "run", "./cmd")
+	cmd := exec.CommandContext(ctx, binaryPath)
 	cmd.Dir = projectDir
-	cmd.Env = append(os.Environ(), "GOWORK=off", "GOMODCACHE="+filepath.Join(os.TempDir(), "rest-go-mod"), "GOCACHE="+filepath.Join(os.TempDir(), "rest-runtime-go-build"))
-	cmd.Env = append(cmd.Env, env...)
+	cmd.Env = runtimeGeneratedEnv(env)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
@@ -210,6 +224,13 @@ func startGeneratedApp(t *testing.T, projectDir string, env []string) *exec.Cmd 
 		}
 	})
 	return cmd
+}
+
+func runtimeGeneratedEnv(extra []string) []string {
+	env := append([]string{}, os.Environ()...)
+	env = append(env, "GOWORK=off")
+	env = append(env, extra...)
+	return env
 }
 
 func stopGeneratedApp(t *testing.T, cmd *exec.Cmd) {
