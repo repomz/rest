@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -651,18 +652,13 @@ func validMongoOperation(value string) bool {
 }
 
 func runDoctorCommand(timeout time.Duration, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Run()
-	}()
-	select {
-	case err := <-done:
-		return err
-	case <-time.After(timeout):
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("%s timed out", name)
 	}
+	return err
 }
