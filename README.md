@@ -7,13 +7,38 @@
 [![sqlc](https://img.shields.io/badge/sqlc-supported-5C6BC0)](https://sqlc.dev/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-`rest` is a Go CLI for generating REST applications on top of SQLC/PostgreSQL and MongoDB contracts.
+`rest` is a Go application generator inspired by [sqlc](https://github.com/sqlc-dev/sqlc). SQLC turns SQL into type-safe Go code; `rest` takes the next step and turns SQLC output or MongoDB contracts into a runnable REST application.
 
-For SQL projects, it reads SQL schemas, SQLC queries, and generated Go code, then creates a layered application with domain models, repositories, services, HTTP transport, OpenAPI, Docker, logging, metrics, security middleware, tests, and curl examples. For MongoDB projects, it reads `rest_mongo/*.yaml` contracts and generates a layered MongoDB HTTP API with custom methods, OpenAPI documentation, auth/security middleware, and Docker output.
+Here's how it works:
+
+1. You describe data access with SQLC/PostgreSQL files or MongoDB YAML contracts.
+2. You run `rest gen`.
+3. You get a layered Go REST application with repositories, services, HTTP handlers, OpenAPI, auth/RBAC, Docker, tests, and production-oriented middleware.
+
+For SQL projects, `rest` reads SQL schemas, SQLC queries, and generated Go code, then creates domain models, repositories, services, HTTP transport, OpenAPI, Docker, logging, metrics, security middleware, tests, and curl examples. For MongoDB projects, it reads `rest_config/rest_mongo/*.yaml` contracts and generates a layered MongoDB HTTP API with custom methods, OpenAPI documentation, auth/security middleware, and Docker output.
+
+## Requirements
+
+Required:
+
+- Go 1.24 or newer.
+
+Required for SQL projects:
+
+- [`sqlc`](https://github.com/sqlc-dev/sqlc): `go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest`.
+
+Required for running generated applications:
+
+- PostgreSQL for SQL projects.
+- MongoDB for Mongo projects.
+
+Optional but recommended:
+
+- Docker, when `docker.enabled` or `docker.compose.enabled` is used.
+- [`cosign`](https://github.com/sigstore/cosign), required by strict `rest update` verification.
+- `govulncheck`, used by repository CI through `make vuln`.
 
 ## Installation
-
-Go 1.24 or newer is required:
 
 ```bash
 go install github.com/repomz/rest/cmd/rest@latest
@@ -151,8 +176,10 @@ REST_RUNTIME_E2E=1 make runtime-e2e # requires live Postgres, MongoDB, and sqlc
 
 Use Conventional Commit messages such as
 `feat(update): show download progress`. See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for the project workflow and
-[`RELEASE_WORKFLOW.md`](RELEASE_WORKFLOW.md) for the complete reusable setup.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the project workflow. Release automation
+is implemented by [`scripts/release.sh`](scripts/release.sh),
+[`scripts/publish-release.sh`](scripts/publish-release.sh), and the GitHub
+Actions workflows in [`.github/workflows`](.github/workflows).
 
 Run the representative 10/50-table generator benchmark:
 
@@ -161,12 +188,6 @@ make benchmark
 ```
 
 Pull requests should stay focused, include tests for new generator behavior, and update documentation when CLI, configuration, or generated output changes.
-
-## Status
-
-Available: SQLC/PostgreSQL generation, MongoDB example generation, layered MongoDB CRUD/custom-method generation, OpenAPI, Docker/Docker Compose for SQL and Mongo projects, SQL JWT auth handlers, Mongo JWT/Basic Auth middleware, security headers, rate limiting, production-safer CORS defaults, zap logging, metrics, handler tests, curl documentation, graceful shutdown, CI/CD workflow templates, safe reload, `rest doctor`, cosign/SHA-256 verified self-update, and signed release checksums.
-
-Planned: plugin support, dry-run/diff commands, generated manifests, and migration tooling for existing generated projects.
 
 ## License
 

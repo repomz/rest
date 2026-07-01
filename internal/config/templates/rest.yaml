@@ -1,38 +1,38 @@
 # ==============================================================================
-# REST: ОСНОВНАЯ КОНФИГУРАЦИЯ ПРИЛОЖЕНИЯ
+# REST: MAIN APPLICATION CONFIGURATION
 # ==============================================================================
-# Команда: rest init
-# Правило переключателей: true/enable/enabled/on/yes включают опцию;
-# false/disable/disabled/off/no выключают её.
+# Command: rest init
+# Boolean-like switches: true/enable/enabled/on/yes enable an option;
+# false/disable/disabled/off/no disable it.
 
 # ------------------------------------------------------------------------------
 # PROJECT
 # ------------------------------------------------------------------------------
-version: "0.1.0"                     # Версия конфигурации генератора.
-module: github.com/repomz/myapp       # Go module будущего приложения.
-project_path: .                       # Текущий каталог проекта; можно указать другой путь.
-language: golang                      # Варианты: golang, go. Сейчас поддерживается только Go.
-go_version: "1.24.3"                 # Версия в директиве go файла go.mod.
-environment: development              # Примеры: development, testing, staging, production.
+version: "0.1.0"                     # Generator configuration version.
+module: github.com/repomz/myapp       # Go module for the generated application.
+project_path: .                       # Current project directory; another path can be specified.
+language: golang                      # Supported values: golang, go. Currently only Go is supported.
+go_version: "1.24.3"                 # Version used in the go directive of go.mod.
+environment: development              # Examples: development, testing, staging, production.
 
 # ------------------------------------------------------------------------------
 # HTTP SERVER
 # ------------------------------------------------------------------------------
 http:
-  framework: std                      # Сейчас поддерживается: std (net/http + gorilla/mux).
-  host: 0.0.0.0                       # 0.0.0.0 для всех интерфейсов, 127.0.0.1 только локально.
+  framework: std                      # Currently supported: std (net/http + gorilla/mux).
+  host: 0.0.0.0                       # 0.0.0.0 for all interfaces, 127.0.0.1 for local access only.
   port: 8080
-  base_path: /                        # Примеры: /, /api, /api/v1. Обязательно начинается с /.
-  timeouts:                           # Формат Go duration: 500ms, 5s, 2m, 1h.
+  base_path: /                        # Examples: /, /api, /api/v1. Must start with /.
+  timeouts:                           # Go duration format: 500ms, 5s, 2m, 1h.
     read_header: 5s
     read: 30s
     write: 30s
     idle: 60s
     shutdown: 10s
   limits:
-    max_body_bytes: 1048576           # 0 отключает ограничение; 1048576 = 1 MiB.
+    max_body_bytes: 1048576           # 0 disables the limit; 1048576 = 1 MiB.
   graceful_shutdown:
-    enabled: enable                   # Поддерживается только enable: корректно завершает HTTP server по SIGINT/SIGTERM.
+    enabled: enable                   # Only enable is supported: gracefully stops the HTTP server on SIGINT/SIGTERM.
   health:
     enabled: true
     path: /health
@@ -42,15 +42,15 @@ http:
       header: X-Request-ID
     cors:
       enabled: true
-      allow_origins: ["http://localhost:3000", "https://example.com"] # Production-safe default: укажите свои origins; избегайте ["*"].
+      allow_origins: ["http://localhost:3000", "https://example.com"] # Production-safe default: set your own origins; avoid ["*"].
       allow_methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
       allow_headers: [Authorization, Content-Type, X-Request-ID]
       expose_headers: [X-Request-ID]
-      allow_credentials: false        # При true нельзя использовать allow_origins: ["*"].
-      max_age: 12h                    # Формат Go duration.
+      allow_credentials: false        # When true, allow_origins cannot contain ["*"].
+      max_age: 12h                    # Go duration format.
     recovery:
       enabled: true
-      expose_details: false           # true удобно локально, но небезопасно в production.
+      expose_details: false           # true is useful locally but unsafe in production.
     security_headers:
       enabled: true
       content_type_options: nosniff
@@ -58,29 +58,29 @@ http:
       referrer_policy: no-referrer
       permissions_policy: "geolocation=(), microphone=(), camera=()"
       content_security_policy: "default-src 'self'; frame-ancestors 'none'"
-      strict_transport_security: ""    # Пример для HTTPS: "max-age=31536000; includeSubDomains".
+      strict_transport_security: ""    # HTTPS example: "max-age=31536000; includeSubDomains".
     rate_limit:
       enabled: true
       requests_per_window: 120         # Per-client-IP fixed window limit.
-      window: 1m                       # Формат Go duration.
+      window: 1m                       # Go duration format.
 
 # ------------------------------------------------------------------------------
 # DATA SOURCES AND AUTHORIZATION
 # ------------------------------------------------------------------------------
-# Детальные настройки находятся в rest_sqlc.yaml и mongo_rest.yaml.
-# При auth: enable файл auth_rest.yaml создаётся первым rest gen после обнаружения endpoint-ов.
+# Detailed settings are stored in rest_sqlc.yaml and mongo_rest.yaml.
+# When auth: enable is set, auth_rest.yaml is created by the first rest gen after endpoint discovery.
 sql: enable
-auto_sqlc: enable                    # При rest gen автоматически выполняет: sqlc generate -f <sqlc_path>.
-                                      # Требуется установленный sqlc: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest.
-                                      # Если disable, выполните sqlc generate -f <sqlc_path> самостоятельно перед rest gen.
+auto_sqlc: enable                    # Automatically runs during rest gen: sqlc generate -f <sqlc_path>.
+                                      # Requires sqlc: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest.
+                                      # If disabled, run sqlc generate -f <sqlc_path> manually before rest gen.
 mongo: disable
 auth: disable
 
 # ------------------------------------------------------------------------------
 # SAFE RELOAD
 # ------------------------------------------------------------------------------
-# Если включено, перед повторной генерацией сравнивает текущие файлы с последним
-# снимком генератора и спрашивает, сохранять ли пользовательские изменения.
+# When enabled, compares current files with the latest generator snapshot before
+# regeneration and asks whether user changes should be preserved.
 safe_reload: enable
 
 # ------------------------------------------------------------------------------
@@ -88,19 +88,19 @@ safe_reload: enable
 # ------------------------------------------------------------------------------
 logging:
   enabled: true
-  library: zap                       # Сейчас поддерживается: zap.
-  level: info                        # Варианты zap: debug, info, warn, error, dpanic, panic, fatal.
-  format: json                       # Варианты: json, console.
+  library: zap                       # Currently supported: zap.
+  level: info                        # zap values: debug, info, warn, error, dpanic, panic, fatal.
+  format: json                       # Values: json, console.
   output:
-    type: stdout                     # Варианты: stdout, stderr, file.
-    file: logs/app.log               # Используется только при type: file.
-  rotation:                          # Ротация применяется только к output.type: file.
+    type: stdout                     # Values: stdout, stderr, file.
+    file: logs/app.log               # Used only when type: file.
+  rotation:                          # Rotation applies only when output.type: file.
     enabled: false
     max_size_mb: 100
     max_backups: 10
     max_age_days: 30
     compress: true
-  fields:                            # Постоянные поля каждого сообщения журнала.
+  fields:                            # Static fields added to every log entry.
     service: myapp
     environment: development
 
@@ -109,14 +109,14 @@ logging:
 # ------------------------------------------------------------------------------
 openapi:
   enabled: true
-  output: docs/swagger.yaml           # Физический файл спецификации на диске.
+  output: docs/swagger.yaml           # Physical specification file on disk.
   title: My App API
   version: "0.1.0"
   description: Generated application API
   server_url: http://localhost:8080
   with_ui: true
-  ui_path: /swagger/index.html        # HTTP route, не файл на диске.
-  spec_path: /swagger/openapi.yaml    # HTTP route, не файл на диске.
+  ui_path: /swagger/index.html        # HTTP route, not a file path.
+  spec_path: /swagger/openapi.yaml    # HTTP route, not a file path.
 
 # ------------------------------------------------------------------------------
 # DOCKER
@@ -126,18 +126,18 @@ docker:
   output: Dockerfile
   dockerignore_output: .dockerignore
   compose:
-    enabled: false                    # true/enable создаёт docker-compose.yml рядом с Dockerfile.
+    enabled: false                    # true/enable creates docker-compose.yml next to Dockerfile.
     output: docker-compose.yml
   build_image: golang:1.24-alpine
   runtime_image: alpine:3.21
   binary: app
-  port: 8080                          # Должен совпадать с http.port.
-  user: app                           # Непривилегированный пользователь контейнера.
+  port: 8080                          # Must match http.port.
+  user: app                           # Non-root container user.
   cgo_enabled: false
   healthcheck:
-    enabled: true                     # Требует http.health.enabled: true.
+    enabled: true                     # Requires http.health.enabled: true.
     path: /health
-    interval: 30s                    # Формат Docker/Go duration.
+    interval: 30s                    # Docker/Go duration format.
     timeout: 3s
     retries: 3
 
@@ -145,8 +145,8 @@ docker:
 # TEST ARTIFACTS
 # ------------------------------------------------------------------------------
 testing:
-  handler_tests: enable              # Генерировать Go-тесты HTTP handlers.
-  curl: enabled                      # Генерировать curl/<instance>.md.
+  handler_tests: enable              # Generate Go tests for HTTP handlers.
+  curl: enabled                      # Generate curl/<instance>.md.
 
 # ------------------------------------------------------------------------------
 # OBSERVABILITY
@@ -154,7 +154,7 @@ testing:
 observability:
   metrics:
     enabled: false
-    provider: prometheus             # Сейчас поддерживается: prometheus.
+    provider: prometheus             # Currently supported: prometheus.
     path: /metrics
     namespace: myapp
     collect:
@@ -162,7 +162,7 @@ observability:
       request_duration: true
       response_size: true
       in_flight_requests: true
-    labels: [method, route, status]   # Допустимые значения: method, route, status.
+    labels: [method, route, status]   # Allowed values: method, route, status.
 
 # ------------------------------------------------------------------------------
 # PROJECT SUPPORT FILES
@@ -174,17 +174,17 @@ features:
   gitignore:
     enabled: false
     output: .gitignore
-    append: true                     # true сохраняет пользовательский текст вне managed-блока.
+    append: true                     # true preserves user text outside the managed block.
   env:
     enabled: false
     output: .env.example
-    generate_local_env: false        # true дополнительно создаёт .env с теми же значениями.
+    generate_local_env: false        # true also creates .env with the same values.
   init_db:
     enabled: false
-    output: init_db.sh               # Генерируется исполняемым файлом.
+    output: init_db.sh               # Generated as an executable file.
   ci:
     enabled: false
     output: .github/workflows/ci.yaml # GitHub Actions: gofmt, go test, go vet, go build.
   cd:
     enabled: false
-    output: .github/workflows/cd.yaml # GitHub Actions: build Docker image on tags/releases; требует docker.enabled.
+    output: .github/workflows/cd.yaml # GitHub Actions: build Docker image on tags/releases; requires docker.enabled.

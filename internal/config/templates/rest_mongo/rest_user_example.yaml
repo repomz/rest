@@ -1,15 +1,15 @@
 # ==============================================================================
 # REST: MONGODB USER EXAMPLE
 # ==============================================================================
-# Справочный пример. Для своего контракта создайте отдельный файл,
-# например item.yaml, и опишите в нём одну сущность с её методами.
+# Reference example. For your own contract, create a separate file,
+# for example item.yaml, and describe one entity with its methods there.
 version: "0.1.0"
 
 # ------------------------------------------------------------------------------
 # MODELS AND FIELDS
 # ------------------------------------------------------------------------------
-# Типы полей: string, bool, int32, int64, float64, time, object_id, decimal128,
-# embedded-модель и массив в форме "[]Type".
+# Field types: string, bool, int32, int64, float64, time, object_id, decimal128,
+# embedded model name, and arrays in the "[]Type" form.
 models:
   - name: User
     collection: users

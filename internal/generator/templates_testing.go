@@ -2,7 +2,7 @@ package generator
 
 const curlTemplate = `# Curl commands: {{ .Table.Name }}
 
-Все команды используют переменную ` + "`BASE_URL`" + `. При необходимости измените порт перед запуском.
+All commands use the ` + "`BASE_URL`" + ` variable. Change the port before running if needed.
 
 ` + "```bash" + `
 BASE_URL="${BASE_URL:-http://localhost:{{ httpPort .Features.Build.HTTPPort }}}"
@@ -45,7 +45,7 @@ curl -sS -X GET \
 {{ if .Table.Queries.Delete }}
 ## Delete {{ .Table.Singular }} by ID
 
-Команда изменяет данные.
+This command changes data.
 
 ` + "```bash" + `
 curl -sS -X DELETE \
@@ -55,7 +55,7 @@ curl -sS -X DELETE \
 {{ if .Table.Queries.DeleteAll }}
 ## Delete all {{ .Table.Name }}
 
-Внимание: команда удаляет всю коллекцию.
+Warning: this command deletes the whole collection.
 
 ` + "```bash" + `
 curl -sS -X DELETE "${BASE_URL}{{ routePath .Features.HTTP.BasePath .Table.RouteBase }}" | jq

@@ -1,24 +1,24 @@
 # ==============================================================================
 # REST: MONGODB
 # ==============================================================================
-# Файл читается только когда в rest.yaml указано mongo: enable.
-# Сами модели, поля и методы описываются отдельными YAML-файлами в rest_mongo/.
+# This file is loaded only when rest.yaml contains mongo: enable.
+# Models, fields, and methods are described in separate YAML files under rest_mongo/.
 version: "0.1.0"
 
 # ------------------------------------------------------------------------------
 # CONNECTION
 # ------------------------------------------------------------------------------
 connection:
-  uri_env: MONGO_URI                 # Переменная окружения с MongoDB URI.
-  database: myapp_db                 # База данных приложения.
-  timeout: 10s                       # Общий timeout для подключения и операций.
+  uri_env: MONGO_URI                 # Environment variable containing the MongoDB URI.
+  database: myapp_db                 # Application database.
+  timeout: 10s                       # Shared timeout for connection and operations.
 
 # ------------------------------------------------------------------------------
 # MONGO CODE GENERATION
 # ------------------------------------------------------------------------------
-engine: mongo-go-driver              # Сейчас планируется официальный MongoDB Go driver.
+engine: mongo-go-driver              # Currently supported: official MongoDB Go driver.
 mongo:
-  # Директория относительно rest_config либо абсолютный путь.
+  # Directory relative to rest_config or an absolute path.
   models_path: rest_mongo
 
 # ------------------------------------------------------------------------------

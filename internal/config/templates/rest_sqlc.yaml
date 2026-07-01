@@ -1,38 +1,38 @@
 # ==============================================================================
 # REST: SQL / SQLC
 # ==============================================================================
-# Файл читается только когда в rest.yaml указано sql: enable.
+# This file is loaded only when rest.yaml contains sql: enable.
 
 # ------------------------------------------------------------------------------
 # GENERAL SQL SETTINGS
 # ------------------------------------------------------------------------------
 version: "0.1.0"
-database: postgresql                 # Сейчас поддерживается: postgresql.
+database: postgresql                 # Currently supported: postgresql.
 
 # ------------------------------------------------------------------------------
 # DATABASE CONNECTION
 # ------------------------------------------------------------------------------
-# Эти значения используются при генерации .env.example, .env, Makefile и init_db.sh.
-# Не храните production-пароли в конфигурации; после генерации задавайте их через окружение.
+# These values are used when generating .env.example, .env, Makefile, and init_db.sh.
+# Do not store production passwords in config; provide them through environment variables after generation.
 db_connection:
   db_name: myapp_db
   user_name: app_user
   user_password: app_password
-  options: sslmode=disable            # Примеры: sslmode=disable, sslmode=require.
+  options: sslmode=disable            # Examples: sslmode=disable, sslmode=require.
 
 # ------------------------------------------------------------------------------
 # SQL CODE GENERATION
 # ------------------------------------------------------------------------------
-engine: sqlc                         # Сейчас поддерживается: sqlc.
+engine: sqlc                         # Currently supported: sqlc.
 sqlc:
-  enable: disable                    # Включить SQLC-ветку при выполнении rest gen.
-  rest_sqlc_example: enable          # Маркер доступности встроенного примера; режим выбирается командой rest init --example sql.
-  # Путь относительно каталога rest_config либо абсолютный путь.
+  enable: disable                    # Enable the SQLC path during rest gen.
+  rest_sqlc_example: enable          # Built-in example marker; the mode is selected with rest init --example sql.
+  # Path relative to rest_config or an absolute path.
   sqlc_path: ../rest_sqlc/rest_sqlc.yaml
 
 # ------------------------------------------------------------------------------
 # MIGRATIONS
 # ------------------------------------------------------------------------------
-init_migration: enable               # Создавать начальную миграцию по задействованным таблицам.
-migration_engine: goose              # Сейчас поддерживается: goose.
+init_migration: enable               # Create an initial migration for the involved tables.
+migration_engine: goose              # Currently supported: goose.
 migration_output: internal/sql/migrations

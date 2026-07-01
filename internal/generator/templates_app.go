@@ -287,7 +287,7 @@ clean:
 
 {{ if .Features.Build.InitDB }}
 db:
-	@test -f $(DB_SCRIPT) || { echo "Ошибка: $(DB_SCRIPT) отсутствует"; exit 1; }
+	@test -f $(DB_SCRIPT) || { echo "Error: $(DB_SCRIPT) is missing"; exit 1; }
 	@chmod +x $(DB_SCRIPT)
 	@./$(DB_SCRIPT)
 {{ end }}
@@ -303,7 +303,7 @@ migrate-down:
 	goose -dir $(MIGRATIONS_DIR) $(DB_DRIVER) $(DB_DSN) down
 
 migrate-create:
-	@read -p "Название миграции: " name; \
+	@read -p "Migration name: " name; \
 	goose -dir $(MIGRATIONS_DIR) create $$name sql
 {{ end }}
 `
@@ -333,21 +333,21 @@ sql_literal() {
 	printf "'%s'" "${1//\'/\'\'}"
 }
 
-echo "Настройка базы данных '$DB_NAME' и пользователя '$DB_USER'..."
+echo "Configuring database '$DB_NAME' and user '$DB_USER'..."
 
 if [[ $("${PSQL_ADMIN[@]}" -tAc "SELECT 1 FROM pg_roles WHERE rolname = $(sql_literal "$DB_USER")" | tr -d '[:space:]') != "1" ]]; then
 	"${PSQL_ADMIN[@]}" -v ON_ERROR_STOP=1 -c "CREATE USER \"$DB_USER\" WITH ENCRYPTED PASSWORD $(sql_literal "$DB_PASS");"
-	echo "Пользователь '$DB_USER' создан."
+	echo "User '$DB_USER' created."
 else
 	"${PSQL_ADMIN[@]}" -v ON_ERROR_STOP=1 -c "ALTER USER \"$DB_USER\" WITH ENCRYPTED PASSWORD $(sql_literal "$DB_PASS");"
-	echo "Пользователь '$DB_USER' уже существует, пароль обновлен."
+	echo "User '$DB_USER' already exists; password updated."
 fi
 
 if [[ $("${PSQL_ADMIN[@]}" -tAc "SELECT 1 FROM pg_database WHERE datname = $(sql_literal "$DB_NAME")" | tr -d '[:space:]') != "1" ]]; then
 	"${PSQL_ADMIN[@]}" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$DB_NAME\" OWNER \"$DB_USER\";"
-	echo "База данных '$DB_NAME' создана."
+	echo "Database '$DB_NAME' created."
 else
-	echo "База данных '$DB_NAME' уже существует."
+	echo "Database '$DB_NAME' already exists."
 fi
 
 "${PSQL_ADMIN[@]}" -v ON_ERROR_STOP=1 <<SQL
@@ -370,7 +370,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "$DB_USER";
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "$DB_USER";
 SQL
 
-echo "Готово: база '$DB_NAME' доступна пользователю '$DB_USER'."
+echo "Done: database '$DB_NAME' is available to user '$DB_USER'."
 `
 
 const ciWorkflowTemplate = `name: CI

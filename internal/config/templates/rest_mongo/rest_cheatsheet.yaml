@@ -1,12 +1,12 @@
 # ==============================================================================
 # REST: MONGODB CONTRACT CHEATSHEET
 # ==============================================================================
-# Справочная схема контракта. Этот файл не является моделью приложения.
-# Создавайте рядом файлы сущностей, например item.yaml, order.yaml, user.yaml.
+# Reference contract schema. This file is not an application model.
+# Create entity files next to it, for example item.yaml, order.yaml, user.yaml.
 #
-# Один файл обычно описывает одну collection-модель, её embedded-типы,
-# индексы и custom methods. Генератор будет читать YAML-файлы из rest_mongo/,
-# исключая системные rest_*.yaml файлы.
+# One file usually describes one collection model, its embedded types,
+# indexes, and custom methods. The generator reads YAML files from rest_mongo/,
+# excluding system rest_*.yaml files.
 #
 # ------------------------------------------------------------------------------
 # ENTITY FILE SHAPE
@@ -15,16 +15,16 @@
 #
 # models:
 #   - name: EntityName               # Go type name.
-#     collection: entity_names       # MongoDB collection; не нужно для embedded.
-#     embedded: false                # true для вложенных value objects.
-#     timestamps: true               # Добавить created_at / updated_at.
-#                                    # Collection-модели получают стандартный CRUD.
+#     collection: entity_names       # MongoDB collection; not needed for embedded models.
+#     embedded: false                # true for embedded value objects.
+#     timestamps: true               # Add created_at / updated_at.
+#                                    # Collection models receive standard CRUD.
 #     fields:
 #       - name: id
 #         type: object_id            # string, bool, int32, int64, float64, time,
 #                                    # object_id, decimal128, Embedded, []Type.
-#         bson: _id                  # Можно не указывать, если совпадает с name.
-#         json: id                   # Можно не указывать, если совпадает с name.
+#         bson: _id                  # Optional when it matches name.
+#         json: id                   # Optional when it matches name.
 #         primary: true
 #         generated: true
 #
@@ -34,10 +34,10 @@
 #         unique: true
 #         default: draft
 #         enum: [draft, published]
-#         write_only: true           # Например password_hash.
-#         reference: User            # Простая ссылка на другую model.
+#         write_only: true           # For example password_hash.
+#         reference: User            # Simple reference to another model.
 #         validation:
-#           format: email            # email, uri, uuid и т.п.
+#           format: email            # email, uri, uuid, etc.
 #           min_length: 3
 #           max_length: 320
 #           minimum: 0
@@ -48,7 +48,7 @@
 #     name: idx_entity_field
 #     keys:
 #       - field: title
-#         order: asc                 # asc или desc.
+#         order: asc                 # asc or desc.
 #     unique: true
 #
 # methods:
@@ -68,7 +68,7 @@
 #       - field: title
 #         op: eq                     # eq, ne, gt, gte, lt, lte, in, nin,
 #                                    # regex, exists.
-#         param: title               # Или value: active для констант.
+#         param: title               # Or value: active for constants.
 #     update:
 #       set:
 #         - field: status
@@ -81,5 +81,5 @@
 #       max_limit: 100
 version: "0.1.0"
 
-# Этот файл намеренно содержит только комментарии и version.
-# Рабочие entity-файлы создавайте рядом: item.yaml, user.yaml, order.yaml.
+# This file intentionally contains only comments and version.
+# Create working entity files next to it: item.yaml, user.yaml, order.yaml.
