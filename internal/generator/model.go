@@ -62,6 +62,7 @@ type AuthPolicy struct {
 
 type BuildFeatures struct {
 	Configured       bool
+	Backend          string
 	Makefile         bool
 	HandlerTests     bool
 	Curl             bool
@@ -75,6 +76,8 @@ type BuildFeatures struct {
 	GenerateLocalEnv bool
 	InitDB           bool
 	InitDBPath       string
+	DeploymentGuide  bool
+	DeploymentPath   string
 	SafeReload       bool
 	CI               bool
 	CIPath           string
@@ -186,7 +189,9 @@ type DockerFeatures struct {
 }
 
 type MongoFeatures struct {
-	Models []MongoModel
+	Models   []MongoModel
+	URIEnv   string
+	Database string
 }
 
 type MongoModel struct {

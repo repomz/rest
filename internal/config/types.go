@@ -173,12 +173,13 @@ type MetricCollection struct {
 }
 
 type ApplicationFeatures struct {
-	Makefile  GeneratedFile    `yaml:"makefile"`
-	Gitignore GitignoreFeature `yaml:"gitignore"`
-	Env       EnvFeature       `yaml:"env"`
-	InitDB    GeneratedFile    `yaml:"init_db"`
-	CI        GeneratedFile    `yaml:"ci"`
-	CD        GeneratedFile    `yaml:"cd"`
+	Makefile        GeneratedFile    `yaml:"makefile"`
+	Gitignore       GitignoreFeature `yaml:"gitignore"`
+	Env             EnvFeature       `yaml:"env"`
+	InitDB          GeneratedFile    `yaml:"init_db"`
+	DeploymentGuide GeneratedFile    `yaml:"deployment_guide"`
+	CI              GeneratedFile    `yaml:"ci"`
+	CD              GeneratedFile    `yaml:"cd"`
 }
 type GeneratedFile struct {
 	Enabled Enabled `yaml:"enabled"`

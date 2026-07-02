@@ -811,6 +811,7 @@ func (SQLFeature) Generate(ctx Context) error {
 		Features: generator.FeatureOptions{
 			Build: generator.BuildFeatures{
 				Configured:       true,
+				Backend:          "sql",
 				Makefile:         ctx.Config.Rest.Features.Makefile.Enabled.Bool(),
 				HandlerTests:     ctx.Config.Rest.Testing.HandlerTests.Bool(),
 				Curl:             ctx.Config.Rest.Testing.Curl.Bool(),
@@ -824,6 +825,8 @@ func (SQLFeature) Generate(ctx Context) error {
 				GenerateLocalEnv: ctx.Config.Rest.Features.Env.GenerateLocalEnv,
 				InitDB:           ctx.Config.Rest.Features.InitDB.Enabled.Bool(),
 				InitDBPath:       ctx.Config.Rest.Features.InitDB.Output,
+				DeploymentGuide:  ctx.Config.Rest.Features.DeploymentGuide.Enabled.Bool(),
+				DeploymentPath:   ctx.Config.Rest.Features.DeploymentGuide.Output,
 				SafeReload:       ctx.Config.Rest.SafeReload.Bool(),
 				CI:               ctx.Config.Rest.Features.CI.Enabled.Bool(),
 				CIPath:           ctx.Config.Rest.Features.CI.Output,

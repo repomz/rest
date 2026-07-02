@@ -90,6 +90,9 @@ func Generate(opts Options) error {
 	if opts.Features.Build.InitDB {
 		files[defaultPath(opts.Features.Build.InitDBPath, "init_db.sh")] = initDBTemplate
 	}
+	if opts.Features.Build.DeploymentGuide {
+		files[defaultPath(opts.Features.Build.DeploymentPath, "DEPLOYMENT.md")] = BuildDeploymentGuideSource(opts.Features)
+	}
 	if opts.Features.Build.Env {
 		files[defaultPath(opts.Features.Build.EnvPath, ".env.example")] = envExampleTemplate
 		if opts.Features.Build.GenerateLocalEnv {
@@ -433,6 +436,7 @@ func generatedOptionalPaths(features FeatureOptions) []string {
 		defaultPath(features.Build.MakefilePath, "Makefile"),
 		defaultPath(features.Build.InitDBPath, "init_db.sh"),
 		defaultPath(features.Build.EnvPath, ".env.example"),
+		defaultPath(features.Build.DeploymentPath, "DEPLOYMENT.md"),
 		defaultPath(features.Build.CIPath, ".github/workflows/ci.yaml"),
 		defaultPath(features.Build.CDPath, ".github/workflows/cd.yaml"),
 		defaultPath(features.Docker.Output, "Dockerfile"),

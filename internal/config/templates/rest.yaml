@@ -182,6 +182,9 @@ features:
   init_db:
     enabled: false
     output: init_db.sh               # Generated as an executable file.
+  deployment_guide:
+    enabled: false
+    output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.
   ci:
     enabled: false
     output: .github/workflows/ci.yaml # GitHub Actions: gofmt, go test, go vet, go build.

@@ -83,6 +83,13 @@ func (MongoFeature) Generate(ctx Context) error {
 		}
 		files[output] = mongoDockerComposeSource(ctx)
 	}
+	if ctx.Config.Rest.Features.DeploymentGuide.Enabled.Bool() {
+		output := ctx.Config.Rest.Features.DeploymentGuide.Output
+		if output == "" {
+			output = "DEPLOYMENT.md"
+		}
+		files[output] = generator.BuildDeploymentGuideSource(mongoFeatureOptions(ctx, models))
+	}
 	for path, content := range files {
 		content = strings.ReplaceAll(content, "{{MODULE}}", module)
 		target := filepath.Join(ctx.ProjectDir, filepath.FromSlash(path))
@@ -118,7 +125,16 @@ func mongoFeatureOptions(ctx Context, models []generator.MongoModel) generator.F
 			SpecPath:        ctx.Config.Rest.OpenAPI.SpecPath,
 			SecuritySchemes: ctx.Config.Rest.OpenAPI.SecuritySchemes,
 		},
-		Build: generator.BuildFeatures{HTTPPort: ctx.Config.Rest.HTTP.Port},
+		Build: generator.BuildFeatures{
+			Configured:      true,
+			Backend:         "mongo",
+			HTTPPort:        ctx.Config.Rest.HTTP.Port,
+			Makefile:        ctx.Config.Rest.Features.Makefile.Enabled.Bool(),
+			Env:             ctx.Config.Rest.Features.Env.Enabled.Bool(),
+			EnvPath:         ctx.Config.Rest.Features.Env.Output,
+			DeploymentGuide: ctx.Config.Rest.Features.DeploymentGuide.Enabled.Bool(),
+			DeploymentPath:  ctx.Config.Rest.Features.DeploymentGuide.Output,
+		},
 		Metrics: generator.MetricsFeatures{
 			Enabled: ctx.Config.Rest.Observability.Metrics.Enabled.Bool(),
 			Path:    ctx.Config.Rest.Observability.Metrics.Path,
@@ -141,7 +157,11 @@ func mongoFeatureOptions(ctx Context, models []generator.MongoModel) generator.F
 			HealthTimeout:      ctx.Config.Rest.Docker.Healthcheck.Timeout,
 			HealthRetries:      ctx.Config.Rest.Docker.Healthcheck.Retries,
 		},
-		Mongo: generator.MongoFeatures{Models: models},
+		Mongo: generator.MongoFeatures{
+			Models:   models,
+			URIEnv:   ctx.Config.Mongo.Connection.URIEnv,
+			Database: ctx.Config.Mongo.Connection.Database,
+		},
 	}
 }
 

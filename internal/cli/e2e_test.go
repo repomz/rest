@@ -142,6 +142,61 @@ func TestE2EInitMongoExampleGeneratesComposeWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestE2EGeneratesDeploymentGuideWhenEnabled(t *testing.T) {
+	t.Run("sql", func(t *testing.T) {
+		projectDir := filepath.Join(t.TempDir(), "sql-guide-app")
+		if err := os.MkdirAll(projectDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		withWorkingDir(t, projectDir)
+		if err := run([]string{"init"}); err != nil {
+			t.Fatal(err)
+		}
+		patchE2ERestConfig(t, filepath.Join(projectDir, "rest_config", "rest.yaml"))
+		patchFileForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"), map[string]string{
+			"    enabled: false\n    output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.": "    enabled: true\n    output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.",
+		})
+		writeE2ESQLCInputs(t, projectDir)
+		writeE2ESQLCOutput(t, projectDir)
+		if err := run([]string{"gen"}); err != nil {
+			t.Fatal(err)
+		}
+		assertDeploymentGuide(t, filepath.Join(projectDir, "DEPLOYMENT.md"), []string{"`DB_DSN`", "rest doctor", "go run ./cmd"})
+	})
+
+	t.Run("mongo", func(t *testing.T) {
+		projectDir := filepath.Join(t.TempDir(), "mongo-guide-app")
+		if err := os.MkdirAll(projectDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		withWorkingDir(t, projectDir)
+		if err := run([]string{"init", "--example", "mongo"}); err != nil {
+			t.Fatal(err)
+		}
+		patchFileForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"), map[string]string{
+			"    enabled: false\n    output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.": "    enabled: true\n    output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.",
+		})
+		if err := run([]string{"gen"}); err != nil {
+			t.Fatal(err)
+		}
+		assertDeploymentGuide(t, filepath.Join(projectDir, "DEPLOYMENT.md"), []string{"`MONGO_URI`", "MongoDB database", "rest doctor"})
+	})
+}
+
+func assertDeploymentGuide(t *testing.T, path string, expected []string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("expected deployment guide %s: %v", path, err)
+	}
+	text := string(content)
+	for _, value := range expected {
+		if !strings.Contains(text, value) {
+			t.Fatalf("deployment guide missing %q:\n%s", value, text)
+		}
+	}
+}
+
 func patchE2ERestConfig(t *testing.T, path string) {
 	t.Helper()
 	content, err := os.ReadFile(path)
