@@ -262,6 +262,68 @@ func TestE2EMongoGeneratesProjectSupportFilesWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestE2EMongoSafeReloadPreservesUserChanges(t *testing.T) {
+	projectDir := filepath.Join(t.TempDir(), "mongo-safe-reload-app")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withWorkingDir(t, projectDir)
+	if err := run([]string{"init", "--example", "mongo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"gen"}); err != nil {
+		t.Fatal(err)
+	}
+	handlerPath := filepath.Join(projectDir, "internal", "app", "transport", "httpserver", "item_handlers.go")
+	content, err := os.ReadFile(handlerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userChange := append(content, []byte("\n// custom user change\n")...)
+	if err := os.WriteFile(handlerPath, userChange, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeE2EFile(t, filepath.Join(projectDir, "rest_config", "rest_mongo", "item.yaml"), `
+version: "0.1.0"
+models:
+  - name: Item
+    collection: items
+    fields:
+      - name: id
+        type: object_id
+        json: id
+        primary: true
+        generated: true
+      - name: title
+        type: string
+        required: true
+methods:
+  - model: Item
+    name: FindItemsByTitle
+    operation: find_many
+    http:
+      method: GET
+      path: /items/by-title
+    parameters:
+      - name: title
+        type: string
+        source: query
+        required: true
+`)
+	withStdin(t, "a\n", func() {
+		if err := run([]string{"gen"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	got, err := os.ReadFile(handlerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "custom user change") {
+		t.Fatalf("safe_reload did not preserve Mongo handler changes:\n%s", got)
+	}
+}
+
 func assertDeploymentGuide(t *testing.T, path string, expected []string) {
 	t.Helper()
 	content, err := os.ReadFile(path)
@@ -437,6 +499,27 @@ func writeE2EFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(strings.TrimPrefix(content, "\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func withStdin(t *testing.T, input string, fn func()) {
+	t.Helper()
+	previous := os.Stdin
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.WriteString(input); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	os.Stdin = reader
+	defer func() {
+		os.Stdin = previous
+		_ = reader.Close()
+	}()
+	fn()
 }
 
 func runGeneratedGoTest(t *testing.T, projectDir string) {

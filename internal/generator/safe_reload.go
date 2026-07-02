@@ -28,6 +28,18 @@ func newSafeReload(root string, stdin io.Reader, stdout io.Writer) safeReload {
 	return safeReload{root: root, stdin: stdin, stdout: stdout}
 }
 
+func ResolveSafeReload(root string, files []string, stdin io.Reader, stdout io.Writer) (map[string][]byte, error) {
+	return newSafeReload(root, stdin, stdout).resolve(files)
+}
+
+func RestoreSafeReload(root string, files map[string][]byte) error {
+	return newSafeReload(root, nil, nil).restore(files)
+}
+
+func SaveSafeReload(root string, files []string) error {
+	return newSafeReload(root, nil, nil).save(files)
+}
+
 func (s safeReload) resolve(files []string) (map[string][]byte, error) {
 	files = uniqueSorted(files)
 	preserved := map[string][]byte{}

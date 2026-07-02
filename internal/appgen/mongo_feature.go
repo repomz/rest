@@ -151,6 +151,17 @@ func (MongoFeature) Generate(ctx Context) error {
 		}
 		files[output] = source
 	}
+	generatedFiles := make([]string, 0, len(files))
+	for path := range files {
+		generatedFiles = append(generatedFiles, path)
+	}
+	var preserved map[string][]byte
+	if ctx.Config.Rest.SafeReload.Bool() {
+		preserved, err = generator.ResolveSafeReload(ctx.ProjectDir, generatedFiles, os.Stdin, os.Stdout)
+		if err != nil {
+			return err
+		}
+	}
 	for path, content := range files {
 		content = strings.ReplaceAll(content, "{{MODULE}}", module)
 		target := filepath.Join(ctx.ProjectDir, filepath.FromSlash(path))
@@ -158,6 +169,14 @@ func (MongoFeature) Generate(ctx Context) error {
 			return err
 		}
 		if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	if ctx.Config.Rest.SafeReload.Bool() {
+		if err := generator.SaveSafeReload(ctx.ProjectDir, generatedFiles); err != nil {
+			return err
+		}
+		if err := generator.RestoreSafeReload(ctx.ProjectDir, preserved); err != nil {
 			return err
 		}
 	}
