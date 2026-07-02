@@ -10,7 +10,7 @@
 # ------------------------------------------------------------------------------
 version: "0.1.0"                     # rest config version; keep as generated unless migration docs say otherwise.
 module: github.com/repomz/myapp       # Go module path written to generated go.mod.
-project_path: .                       # Output directory; "." means generate into the current project.
+project_path: .                       # Output directory for generated files; keep "." for the current project.
 language: golang                      # Supported values: golang, go. Currently only Go is generated.
 go_version: "1.24.3"                 # Go version written to generated go.mod.
 environment: development              # Static environment label for generated config/logs: development, testing, staging, production.
@@ -48,9 +48,6 @@ http:
       allow_origins: ["http://localhost:3000", "https://example.com"] # Production-safe default: set your own origins; avoid ["*"].
       allow_methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS] # Browser methods allowed for cross-origin calls.
       allow_headers: [Authorization, Content-Type, X-Request-ID] # Request headers accepted for CORS preflight.
-      expose_headers: [X-Request-ID] # Response headers visible to browser JavaScript.
-      allow_credentials: false        # When true, allow_origins cannot contain ["*"].
-      max_age: 12h                    # Go duration format.
     recovery:
       enabled: true
       expose_details: false           # true is useful locally but unsafe in production.
@@ -59,9 +56,6 @@ http:
       content_type_options: nosniff   # X-Content-Type-Options value.
       frame_options: DENY             # X-Frame-Options value: DENY, SAMEORIGIN, or empty.
       referrer_policy: no-referrer    # Referrer-Policy value.
-      permissions_policy: "geolocation=(), microphone=(), camera=()" # Browser feature policy.
-      content_security_policy: "default-src 'self'; frame-ancestors 'none'" # Adjust if Swagger/assets need external sources.
-      strict_transport_security: ""    # HTTPS example: "max-age=31536000; includeSubDomains".
     rate_limit:
       enabled: true
       requests_per_window: 120         # Per-client-IP fixed window limit.
@@ -140,7 +134,7 @@ docker:
   output: Dockerfile                  # Dockerfile path.
   dockerignore_output: .dockerignore  # .dockerignore path.
   compose:
-    enabled: false                    # true/enable creates docker-compose.yml next to Dockerfile.
+    enabled: false                    # true/enable creates docker-compose.yml for the selected backend.
     output: docker-compose.yml        # Docker Compose file path.
   build_image: golang:1.24-alpine     # Builder image used by Dockerfile.
   runtime_image: alpine:3.21          # Small runtime image used by Dockerfile.
@@ -160,6 +154,7 @@ docker:
 # ------------------------------------------------------------------------------
 testing:
   handler_tests: enable              # Generate Go tests for HTTP handlers.
+  integration_tests: disable         # In development; reserved for future DB-backed generated integration tests.
   curl: enabled                      # Generate curl/<instance>.md.
 
 # ------------------------------------------------------------------------------
@@ -190,11 +185,11 @@ features:
     output: .gitignore                # .gitignore path.
     append: true                     # true preserves user text outside the managed block.
   env:
-    enabled: false                    # Generate env example file.
+    enabled: false                    # Generate an env example file for local runs.
     output: .env.example              # Env example output path.
     generate_local_env: false        # true also creates .env with the same values.
   init_db:
-    enabled: false                    # Generate PostgreSQL init_db.sh helper.
+    enabled: false                    # Generate PostgreSQL init_db.sh helper; SQL apps only.
     output: init_db.sh               # Generated as an executable file.
   deployment_guide:
     enabled: false                    # Generate DEPLOYMENT.md tailored to this app.

@@ -165,7 +165,7 @@ func TestE2EInitMongoExampleGeneratesComposeWhenEnabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	patchFileForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"), map[string]string{
-		"    enabled: false                    # true/enable creates docker-compose.yml next to Dockerfile.": "    enabled: true                     # true/enable creates docker-compose.yml next to Dockerfile.",
+		"    enabled: false                    # true/enable creates docker-compose.yml for the selected backend.": "    enabled: true                     # true/enable creates docker-compose.yml for the selected backend.",
 	})
 	if err := run([]string{"gen"}); err != nil {
 		t.Fatal(err)

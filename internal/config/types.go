@@ -152,8 +152,9 @@ type DockerHealthcheck struct {
 }
 
 type Testing struct {
-	HandlerTests Enabled `yaml:"handler_tests"`
-	Curl         Enabled `yaml:"curl"`
+	HandlerTests     Enabled `yaml:"handler_tests"`
+	IntegrationTests Enabled `yaml:"integration_tests"`
+	Curl             Enabled `yaml:"curl"`
 }
 type Observability struct {
 	Metrics Metrics `yaml:"metrics"`

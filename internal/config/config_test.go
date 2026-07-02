@@ -546,6 +546,9 @@ func TestLoadFeatureSwitches(t *testing.T) {
 	if !bundle.Rest.Testing.HandlerTests.Bool() || !bundle.Rest.Testing.Curl.Bool() {
 		t.Fatal("testing switches were not loaded")
 	}
+	if bundle.Rest.Testing.IntegrationTests.Bool() {
+		t.Fatal("integration tests must remain disabled until the feature is implemented")
+	}
 	if bundle.Rest.Features.Makefile.Enabled.Bool() {
 		t.Fatal("makefile must remain disabled in the canonical config")
 	}
