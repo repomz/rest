@@ -125,6 +125,7 @@ func (d *doctorRunner) checkProject() {
 	d.checkDocker()
 	d.checkGeneratedProject()
 	d.checkCI()
+	d.checkReleaseTrust()
 }
 
 func (d *doctorRunner) checkBasicConfig() {
@@ -227,6 +228,13 @@ func (d *doctorRunner) checkSQL() {
 	} else {
 		d.warn("SQLC generated db package is not present yet", "Run `rest gen` after configuring SQLC.")
 	}
+	if d.generatedExists("cmd/main.go") {
+		if strings.TrimSpace(os.Getenv("DB_DSN")) == "" {
+			d.warn("DB_DSN is not set in the current environment", "Set DB_DSN before running the generated PostgreSQL app locally or in CI.")
+		} else {
+			d.ok("DB_DSN is set in the current environment")
+		}
+	}
 }
 
 func (d *doctorRunner) checkSQLCInputs(sqlcPath string) {
@@ -255,6 +263,17 @@ func (d *doctorRunner) checkMongo() {
 	d.ok("Mongo config loaded")
 	if d.bundle.Mongo.Connection.Database == "" {
 		d.err("mongo.connection.database is empty", "Set the target Mongo database name.")
+	}
+	uriEnv := d.bundle.Mongo.Connection.URIEnv
+	if uriEnv == "" {
+		uriEnv = "MONGO_URI"
+	}
+	if d.generatedExists("cmd/main.go") {
+		if strings.TrimSpace(os.Getenv(uriEnv)) == "" {
+			d.warn(uriEnv+" is not set in the current environment", "Set "+uriEnv+" before running the generated Mongo app locally or in CI.")
+		} else {
+			d.ok(uriEnv + " is set in the current environment")
+		}
 	}
 	modelsPath := d.bundle.Mongo.Mongo.ModelsPath
 	if modelsPath == "" {
@@ -488,6 +507,7 @@ func (d *doctorRunner) checkGeneratedProject() {
 	} else {
 		d.warn("go.sum is missing", "Run `go mod tidy` or `rest gen`.")
 	}
+	d.checkGeneratedGuide("deployment guide", d.bundle.Rest.Features.DeploymentGuide.Enabled.Bool(), d.bundle.Rest.Features.DeploymentGuide.Output, "DEPLOYMENT.md")
 }
 
 func (d *doctorRunner) checkCI() {
@@ -513,6 +533,29 @@ func (d *doctorRunner) checkCI() {
 	} else {
 		d.warn("GitHub CI workflow is missing", "Add .github/workflows/ci.yml or enable features.ci.")
 	}
+}
+
+func (d *doctorRunner) checkGeneratedGuide(name string, enabled bool, configuredPath, fallback string) {
+	if !enabled {
+		return
+	}
+	path := configuredPath
+	if path == "" {
+		path = fallback
+	}
+	if d.generatedExists(path) {
+		d.ok(name + " exists: " + filepath.ToSlash(path))
+		return
+	}
+	d.warn(name+" is enabled but not generated yet", "Run `rest gen`.")
+}
+
+func (d *doctorRunner) checkReleaseTrust() {
+	if _, err := exec.LookPath("cosign"); err != nil {
+		d.warn("cosign is not available for strict release verification", "Install cosign before using `rest update` in strict trust-sensitive environments.")
+		return
+	}
+	d.ok("cosign is available for release verification")
 }
 
 func (d *doctorRunner) generatedExists(path string) bool {

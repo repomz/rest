@@ -17,6 +17,31 @@ func TestRunRejectsLegacyGenerateCommand(t *testing.T) {
 	}
 }
 
+func TestFormatErrorAddsUsefulHints(t *testing.T) {
+	got := FormatError(os.ErrNotExist)
+	if got != os.ErrNotExist.Error() {
+		t.Fatalf("unexpected hint for generic error: %q", got)
+	}
+
+	got = FormatError(&execError{text: `sqlc: executable file not found`})
+	for _, want := range []string{
+		"Install sqlc",
+		"rest doctor",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("formatted error missing %q:\n%s", want, got)
+		}
+	}
+}
+
+type execError struct {
+	text string
+}
+
+func (e *execError) Error() string {
+	return e.text
+}
+
 func TestParseInitOptions(t *testing.T) {
 	got, err := parseInitOptions([]string{"--example", "sql"})
 	if err != nil {
