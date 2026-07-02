@@ -1,7 +1,7 @@
 # REST
 
 <p align="center">
-  <img src="assets/rest-logo.svg" alt="rest — Give yourself a little rest. Write queries. Get an application. Add business logic." width="680">
+  <img src="assets/rest-logo.png" alt="rest — Give yourself a little" width="680">
 </p>
 
 [![CI](https://github.com/repomz/rest/actions/workflows/ci.yml/badge.svg)](https://github.com/repomz/rest/actions/workflows/ci.yml)
