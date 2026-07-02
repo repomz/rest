@@ -445,6 +445,14 @@ func generatedOptionalPaths(features FeatureOptions) []string {
 	}
 }
 
+func BuildLoggingSource(features FeatureOptions) (string, error) {
+	out, err := renderTemplateBytes("internal/app/logging/logger.go", loggingTemplate, renderData{Features: features})
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 func removeGeneratedEnv(path string) error {
 	content, err := os.ReadFile(path)
 	if os.IsNotExist(err) {

@@ -20,6 +20,9 @@ import (
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
+	{{- if .Features.Logging.Enabled }}
+	"go.uber.org/zap"
+	{{- end }}
 
 	"{{ .Module }}/internal/app/config"
 	"{{ .DBImport }}"
@@ -211,12 +214,20 @@ func run() error {
 		ctx, cancel := context.WithTimeout(context.Background(), mustDuration({{ printf "%q" (defaultString .Features.HTTP.ShutdownTimeout "10s") }}))
 		defer cancel()
 		if err := srv.Shutdown(ctx); err != nil {
+			{{- if .Features.Logging.Enabled }}
+			logger.Error("HTTP server shutdown error", zap.Error(err))
+			{{- else }}
 			log.Printf("HTTP server shutdown error: %v", err)
+			{{- end }}
 		}
 		close(stopped)
 	}()
 
+	{{- if .Features.Logging.Enabled }}
+	logger.Info("starting HTTP server", zap.String("addr", cfg.HTTPAddr))
+	{{- else }}
 	log.Printf("Starting HTTP server on %s", cfg.HTTPAddr)
+	{{- end }}
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		return err
 	}

@@ -154,7 +154,7 @@ func TestE2EGeneratesDeploymentGuideWhenEnabled(t *testing.T) {
 		}
 		patchE2ERestConfig(t, filepath.Join(projectDir, "rest_config", "rest.yaml"))
 		patchFileForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"), map[string]string{
-			"    enabled: false\n    output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.": "    enabled: true\n    output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.",
+			"    enabled: false                    # Generate DEPLOYMENT.md tailored to this app.\n    output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.": "    enabled: true                    # Generate DEPLOYMENT.md tailored to this app.\n    output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.",
 		})
 		writeE2ESQLCInputs(t, projectDir)
 		writeE2ESQLCOutput(t, projectDir)
@@ -174,7 +174,7 @@ func TestE2EGeneratesDeploymentGuideWhenEnabled(t *testing.T) {
 			t.Fatal(err)
 		}
 		patchFileForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"), map[string]string{
-			"    enabled: false\n    output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.": "    enabled: true\n    output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.",
+			"    enabled: false                    # Generate DEPLOYMENT.md tailored to this app.\n    output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.": "    enabled: true                    # Generate DEPLOYMENT.md tailored to this app.\n    output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.",
 		})
 		if err := run([]string{"gen"}); err != nil {
 			t.Fatal(err)

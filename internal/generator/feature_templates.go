@@ -173,11 +173,14 @@ func MaxBodyBytes(limit int64, next http.Handler) http.Handler {
 const loggingTemplate = `package logging
 
 import (
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
-	"net/http"
+	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 {{- if and (eq .Features.Logging.OutputType "file") .Features.Logging.Rotation }}
@@ -222,7 +225,7 @@ func New() (*zap.Logger, error) {
 	default:
 		output = zapcore.AddSync(os.Stdout)
 	}
-	logger := zap.New(zapcore.NewCore(encoder, output, level))
+	logger := zap.New(zapcore.NewCore(encoder, output, level), zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
 	return logger.With(
 {{- range $key, $value := .Features.Logging.Fields }}
 		zap.String({{ printf "%q" $key }}, {{ printf "%q" $value }}),
@@ -231,21 +234,66 @@ func New() (*zap.Logger, error) {
 }
 
 func Middleware(logger *zap.Logger, next http.Handler) http.Handler {
+	{{- if .Features.HTTP.RequestID }}
+	redactedHeaders := map[string]bool{
+{{- range .Features.Logging.Redact }}
+		strings.ToLower({{ printf "%q" . }}): true,
+{{- end }}
+	}
+	{{- end }}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		recorder := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(recorder, r)
-		logger.Info("http request",
+		fields := []zap.Field{
 			zap.String("method", r.Method),
 			zap.String("path", r.URL.Path),
+			zap.String("route", routePattern(r)),
+			zap.String("remote_ip", clientIP(r)),
+			zap.String("user_agent", r.UserAgent()),
 			{{- if .Features.HTTP.RequestID }}
-			zap.String("request_id", r.Header.Get({{ printf "%q" (defaultString .Features.HTTP.RequestIDHeader "X-Request-ID") }})),
+			zap.String("request_id", safeHeader(r, {{ printf "%q" (defaultString .Features.HTTP.RequestIDHeader "X-Request-ID") }}, redactedHeaders)),
 			{{- end }}
 			zap.Int("status", recorder.status),
 			zap.Int("response_bytes", recorder.bytes),
 			zap.Duration("duration", time.Since(started)),
-		)
+		}
+		switch {
+		case recorder.status >= http.StatusInternalServerError:
+			logger.Error("http request", fields...)
+		case recorder.status >= http.StatusBadRequest:
+			logger.Warn("http request", fields...)
+		default:
+			logger.Info("http request", fields...)
+		}
 	})
+}
+
+func routePattern(r *http.Request) string {
+	route := mux.CurrentRoute(r)
+	if route == nil {
+		return ""
+	}
+	path, err := route.GetPathTemplate()
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+func safeHeader(r *http.Request, name string, redacted map[string]bool) string {
+	if redacted[strings.ToLower(name)] {
+		return "[REDACTED]"
+	}
+	return r.Header.Get(name)
 }
 
 type responseRecorder struct {

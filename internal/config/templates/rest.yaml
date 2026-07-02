@@ -8,12 +8,12 @@
 # ------------------------------------------------------------------------------
 # PROJECT
 # ------------------------------------------------------------------------------
-version: "0.1.0"                     # Generator configuration version.
-module: github.com/repomz/myapp       # Go module for the generated application.
-project_path: .                       # Current project directory; another path can be specified.
-language: golang                      # Supported values: golang, go. Currently only Go is supported.
-go_version: "1.24.3"                 # Version used in the go directive of go.mod.
-environment: development              # Examples: development, testing, staging, production.
+version: "0.1.0"                     # rest config version; keep as generated unless migration docs say otherwise.
+module: github.com/repomz/myapp       # Go module path written to generated go.mod.
+project_path: .                       # Output directory; "." means generate into the current project.
+language: golang                      # Supported values: golang, go. Currently only Go is generated.
+go_version: "1.24.3"                 # Go version written to generated go.mod.
+environment: development              # Static environment label for generated config/logs: development, testing, staging, production.
 
 # ------------------------------------------------------------------------------
 # HTTP SERVER
@@ -21,46 +21,46 @@ environment: development              # Examples: development, testing, staging,
 http:
   framework: std                      # Currently supported: std (net/http + gorilla/mux).
   host: 0.0.0.0                       # 0.0.0.0 for all interfaces, 127.0.0.1 for local access only.
-  port: 8080
+  port: 8080                          # HTTP listen port for local run and generated Docker defaults.
   base_path: /                        # Examples: /, /api, /api/v1. Must start with /.
   timeouts:                           # Go duration format: 500ms, 5s, 2m, 1h.
-    read_header: 5s
-    read: 30s
-    write: 30s
-    idle: 60s
-    shutdown: 10s
+    read_header: 5s                   # Max time to read request headers; protects against slowloris-style clients.
+    read: 30s                         # Max time to read the whole request, including body.
+    write: 30s                        # Max time to write the response.
+    idle: 60s                         # Keep-alive idle timeout.
+    shutdown: 10s                     # Grace period for Ctrl+C/SIGTERM graceful shutdown.
   limits:
     max_body_bytes: 1048576           # 0 disables the limit; 1048576 = 1 MiB.
   graceful_shutdown:
     enabled: enable                   # Only enable is supported: gracefully stops the HTTP server on SIGINT/SIGTERM.
   health:
-    enabled: true                    # Lightweight liveness endpoint: process is running.
-    path: /health
+    enabled: true                     # Lightweight liveness endpoint: process is running.
+    path: /health                     # Liveness HTTP route.
   readiness:
-    enabled: true                    # Readiness endpoint: checks database connectivity.
-    path: /ready
+    enabled: true                     # Readiness endpoint: checks database connectivity.
+    path: /ready                      # Readiness HTTP route for orchestration/load balancers.
   middleware:
     request_id:
-      enabled: true
-      header: X-Request-ID
+      enabled: true                   # Adds/propagates a request id for logs and responses.
+      header: X-Request-ID            # Header name used for request correlation.
     cors:
       enabled: true
       allow_origins: ["http://localhost:3000", "https://example.com"] # Production-safe default: set your own origins; avoid ["*"].
-      allow_methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
-      allow_headers: [Authorization, Content-Type, X-Request-ID]
-      expose_headers: [X-Request-ID]
+      allow_methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS] # Browser methods allowed for cross-origin calls.
+      allow_headers: [Authorization, Content-Type, X-Request-ID] # Request headers accepted for CORS preflight.
+      expose_headers: [X-Request-ID] # Response headers visible to browser JavaScript.
       allow_credentials: false        # When true, allow_origins cannot contain ["*"].
       max_age: 12h                    # Go duration format.
     recovery:
       enabled: true
       expose_details: false           # true is useful locally but unsafe in production.
     security_headers:
-      enabled: true
-      content_type_options: nosniff
-      frame_options: DENY
-      referrer_policy: no-referrer
-      permissions_policy: "geolocation=(), microphone=(), camera=()"
-      content_security_policy: "default-src 'self'; frame-ancestors 'none'"
+      enabled: true                   # Adds common defensive HTTP response headers.
+      content_type_options: nosniff   # X-Content-Type-Options value.
+      frame_options: DENY             # X-Frame-Options value: DENY, SAMEORIGIN, or empty.
+      referrer_policy: no-referrer    # Referrer-Policy value.
+      permissions_policy: "geolocation=(), microphone=(), camera=()" # Browser feature policy.
+      content_security_policy: "default-src 'self'; frame-ancestors 'none'" # Adjust if Swagger/assets need external sources.
       strict_transport_security: ""    # HTTPS example: "max-age=31536000; includeSubDomains".
     rate_limit:
       enabled: true
@@ -72,12 +72,12 @@ http:
 # ------------------------------------------------------------------------------
 # Detailed settings are stored in rest_sqlc.yaml and mongo_rest.yaml.
 # When auth: enable is set, auth_rest.yaml is created by the first rest gen after endpoint discovery.
-sql: enable
+sql: enable                          # enable uses SQLC/PostgreSQL generation.
 auto_sqlc: enable                    # Automatically runs during rest gen: sqlc generate -f <sqlc_path>.
                                       # Requires sqlc: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest.
                                       # If disabled, run sqlc generate -f <sqlc_path> manually before rest gen.
-mongo: disable
-auth: disable
+mongo: disable                       # enable uses Mongo contracts from rest_config/rest_mongo.
+auth: disable                        # enable creates/syncs auth_rest.yaml after endpoint discovery.
 
 # ------------------------------------------------------------------------------
 # SAFE RELOAD
@@ -93,31 +93,32 @@ logging:
   enabled: true
   library: zap                       # Currently supported: zap.
   level: info                        # zap values: debug, info, warn, error, dpanic, panic, fatal.
-  format: json                       # Values: json, console.
+  format: json                       # Values: json for production, console for local readability.
   output:
-    type: stdout                     # Values: stdout, stderr, file.
+    type: stdout                     # Values: stdout, stderr, file. stdout is best for containers.
     file: logs/app.log               # Used only when type: file.
   rotation:                          # Rotation applies only when output.type: file.
-    enabled: false
-    max_size_mb: 100
-    max_backups: 10
-    max_age_days: 30
-    compress: true
+    enabled: false                   # true uses lumberjack rotation for file output.
+    max_size_mb: 100                 # Rotate after this size in megabytes.
+    max_backups: 10                  # Number of old log files to keep.
+    max_age_days: 30                 # Max age of old log files.
+    compress: true                   # gzip rotated log files.
   fields:                            # Static fields added to every log entry.
-    service: myapp
-    environment: development
+    service: myapp                   # Service name for log aggregation.
+    environment: development         # Deployment environment label.
+  redact: [authorization, cookie, set-cookie] # Header names that must never be logged as raw values.
 
 # ------------------------------------------------------------------------------
 # OPENAPI
 # ------------------------------------------------------------------------------
 openapi:
-  enabled: true
+  enabled: true                       # Generate docs/swagger.yaml and optional runtime swagger routes.
   output: docs/swagger.yaml           # Physical specification file on disk.
-  title: My App API
-  version: "0.1.0"
-  description: Generated application API
-  server_url: http://localhost:8080
-  with_ui: true
+  title: My App API                  # OpenAPI title.
+  version: "0.1.0"                   # Public API version shown in OpenAPI.
+  description: Generated application API # Short API description.
+  server_url: http://localhost:8080   # Server URL advertised in OpenAPI.
+  with_ui: true                       # Serve Swagger UI from the generated app.
   ui_path: /swagger/index.html        # HTTP route, not a file path.
   spec_path: /swagger/openapi.yaml    # HTTP route, not a file path.
 
@@ -125,24 +126,24 @@ openapi:
 # DOCKER
 # ------------------------------------------------------------------------------
 docker:
-  enabled: true
-  output: Dockerfile
-  dockerignore_output: .dockerignore
+  enabled: true                       # Generate Dockerfile.
+  output: Dockerfile                  # Dockerfile path.
+  dockerignore_output: .dockerignore  # .dockerignore path.
   compose:
     enabled: false                    # true/enable creates docker-compose.yml next to Dockerfile.
-    output: docker-compose.yml
-  build_image: golang:1.24-alpine
-  runtime_image: alpine:3.21
-  binary: app
+    output: docker-compose.yml        # Docker Compose file path.
+  build_image: golang:1.24-alpine     # Builder image used by Dockerfile.
+  runtime_image: alpine:3.21          # Small runtime image used by Dockerfile.
+  binary: app                         # Binary name inside container.
   port: 8080                          # Must match http.port.
   user: app                           # Non-root container user.
-  cgo_enabled: false
+  cgo_enabled: false                  # Usually false for static-ish Go binaries.
   healthcheck:
     enabled: true                     # Requires http.health.enabled: true.
-    path: /health
-    interval: 30s                    # Docker/Go duration format.
-    timeout: 3s
-    retries: 3
+    path: /health                     # Container healthcheck route.
+    interval: 30s                     # Docker/Go duration format.
+    timeout: 3s                       # Healthcheck timeout.
+    retries: 3                        # Failed checks before unhealthy.
 
 # ------------------------------------------------------------------------------
 # TEST ARTIFACTS
@@ -156,15 +157,15 @@ testing:
 # ------------------------------------------------------------------------------
 observability:
   metrics:
-    enabled: false
+    enabled: false                    # Generate Prometheus-style in-memory metrics endpoint.
     provider: prometheus             # Currently supported: prometheus.
-    path: /metrics
-    namespace: myapp
+    path: /metrics                    # Metrics HTTP route.
+    namespace: myapp                  # Metric name prefix.
     collect:
-      http_requests: true
-      request_duration: true
-      response_size: true
-      in_flight_requests: true
+      http_requests: true             # Count requests by configured labels.
+      request_duration: true          # Track request duration summaries.
+      response_size: true             # Track response byte counts.
+      in_flight_requests: true        # Track current in-flight requests.
     labels: [method, route, status]   # Allowed values: method, route, status.
 
 # ------------------------------------------------------------------------------
@@ -172,25 +173,25 @@ observability:
 # ------------------------------------------------------------------------------
 features:
   makefile:
-    enabled: false
-    output: Makefile
+    enabled: false                    # Generate Makefile with common local commands.
+    output: Makefile                  # Makefile path.
   gitignore:
-    enabled: false
-    output: .gitignore
+    enabled: false                    # Generate or update .gitignore.
+    output: .gitignore                # .gitignore path.
     append: true                     # true preserves user text outside the managed block.
   env:
-    enabled: false
-    output: .env.example
+    enabled: false                    # Generate env example file.
+    output: .env.example              # Env example output path.
     generate_local_env: false        # true also creates .env with the same values.
   init_db:
-    enabled: false
+    enabled: false                    # Generate PostgreSQL init_db.sh helper.
     output: init_db.sh               # Generated as an executable file.
   deployment_guide:
-    enabled: false
+    enabled: false                    # Generate DEPLOYMENT.md tailored to this app.
     output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.
   ci:
-    enabled: false
+    enabled: false                    # Generate GitHub Actions CI workflow.
     output: .github/workflows/ci.yaml # GitHub Actions: gofmt, go test, go vet, go build.
   cd:
-    enabled: false
+    enabled: false                    # Generate GitHub Actions release/Docker workflow.
     output: .github/workflows/cd.yaml # GitHub Actions: build Docker image on tags/releases; requires docker.enabled.

@@ -42,6 +42,13 @@ func (MongoFeature) Generate(ctx Context) error {
 	if mongoMiddlewareEnabled(ctx) {
 		files["internal/app/transport/middleware/http.go"] = mongoMiddlewareSource(ctx)
 	}
+	if ctx.Config.Rest.Logging.Enabled.Bool() {
+		source, err := generator.BuildLoggingSource(features)
+		if err != nil {
+			return err
+		}
+		files["internal/app/logging/logger.go"] = source
+	}
 	files["internal/app/transport/httpserver/auth_middleware.go"] = mongoAuthMiddlewareSource(ctx)
 	for _, model := range models {
 		if model.Embedded || model.Collection == "" {
@@ -106,15 +113,32 @@ func (MongoFeature) Generate(ctx Context) error {
 func mongoFeatureOptions(ctx Context, models []generator.MongoModel) generator.FeatureOptions {
 	return generator.FeatureOptions{
 		HTTP: generator.HTTPFeatures{
-			BasePath:      ctx.Config.Rest.HTTP.BasePath,
-			Host:          ctx.Config.Rest.HTTP.Host,
-			Port:          ctx.Config.Rest.HTTP.Port,
-			Health:        ctx.Config.Rest.HTTP.Health.Enabled.Bool(),
-			HealthPath:    ctx.Config.Rest.HTTP.Health.Path,
-			Readiness:     ctx.Config.Rest.HTTP.Readiness.Enabled.Bool(),
-			ReadinessPath: ctx.Config.Rest.HTTP.Readiness.Path,
+			BasePath:        ctx.Config.Rest.HTTP.BasePath,
+			Host:            ctx.Config.Rest.HTTP.Host,
+			Port:            ctx.Config.Rest.HTTP.Port,
+			RequestID:       ctx.Config.Rest.HTTP.Middleware.RequestID.Enabled.Bool(),
+			RequestIDHeader: ctx.Config.Rest.HTTP.Middleware.RequestID.Header,
+			Health:          ctx.Config.Rest.HTTP.Health.Enabled.Bool(),
+			HealthPath:      ctx.Config.Rest.HTTP.Health.Path,
+			Readiness:       ctx.Config.Rest.HTTP.Readiness.Enabled.Bool(),
+			ReadinessPath:   ctx.Config.Rest.HTTP.Readiness.Path,
 		},
 		Auth: authFeatures(ctx.Config),
+		Logging: generator.LoggingFeatures{
+			Enabled:    ctx.Config.Rest.Logging.Enabled.Bool(),
+			Library:    ctx.Config.Rest.Logging.Library,
+			Level:      ctx.Config.Rest.Logging.Level,
+			Format:     ctx.Config.Rest.Logging.Format,
+			OutputType: ctx.Config.Rest.Logging.Output.Type,
+			OutputFile: ctx.Config.Rest.Logging.Output.File,
+			Rotation:   ctx.Config.Rest.Logging.Rotation.Enabled.Bool(),
+			MaxSizeMB:  ctx.Config.Rest.Logging.Rotation.MaxSizeMB,
+			MaxBackups: ctx.Config.Rest.Logging.Rotation.MaxBackups,
+			MaxAgeDays: ctx.Config.Rest.Logging.Rotation.MaxAgeDays,
+			Compress:   ctx.Config.Rest.Logging.Rotation.Compress,
+			Fields:     ctx.Config.Rest.Logging.Fields,
+			Redact:     ctx.Config.Rest.Logging.Redact,
+		},
 		OpenAPI: generator.OpenAPIFeatures{
 			Enabled:         ctx.Config.Rest.OpenAPI.Enabled.Bool(),
 			Output:          ctx.Config.Rest.OpenAPI.Output,
@@ -188,6 +212,12 @@ func mongoMainSource(ctx Context, models []generator.MongoModel) string {
 	if mongoMiddlewareEnabled(ctx) {
 		middlewareImport = fmt.Sprintf("\n\t%q", module+"/internal/app/transport/middleware")
 	}
+	loggingImport := ""
+	zapImport := ""
+	if ctx.Config.Rest.Logging.Enabled.Bool() {
+		loggingImport = fmt.Sprintf("\n\t%q", module+"/internal/app/logging")
+		zapImport = "\n\t\"go.uber.org/zap\""
+	}
 	handlerSetup := "handler := http.Handler(router)"
 	if ctx.Config.Rest.HTTP.Middleware.RateLimit.Enabled.Bool() {
 		window := ctx.Config.Rest.HTTP.Middleware.RateLimit.Window
@@ -202,6 +232,15 @@ func mongoMainSource(ctx Context, models []generator.MongoModel) string {
 	if ctx.Config.Rest.HTTP.Middleware.SecurityHeaders.Enabled.Bool() {
 		handlerSetup += "\n\thandler = middleware.SecurityHeaders(handler)"
 	}
+	if ctx.Config.Rest.HTTP.Middleware.Recovery.Enabled.Bool() {
+		handlerSetup += "\n\thandler = middleware.Recovery(handler)"
+	}
+	if ctx.Config.Rest.HTTP.Middleware.RequestID.Enabled.Bool() {
+		handlerSetup += "\n\thandler = middleware.RequestID(handler)"
+	}
+	if ctx.Config.Rest.Logging.Enabled.Bool() {
+		handlerSetup += "\n\thandler = logging.Middleware(logger, handler)"
+	}
 	readinessPath := routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.HTTP.Readiness.Path)
 	return fmt.Sprintf(`package main
 
@@ -215,12 +254,14 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+%s
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"%s/internal/app/repository/mongorepo"
 	"%s/internal/app/services"
 	"%s/internal/app/transport/httpserver"
+%s
 %s
 )
 
@@ -231,6 +272,7 @@ func main() {
 }
 
 func run() error {
+	%s
 	timeout, err := time.ParseDuration(%q)
 	if err != nil {
 		return err
@@ -286,12 +328,12 @@ func run() error {
 		ctx, cancel := context.WithTimeout(context.Background(), mustDuration(%q))
 		defer cancel()
 		if err := server.Shutdown(ctx); err != nil {
-			log.Printf("HTTP server shutdown error: %%v", err)
+			%s
 		}
 		close(stopped)
 	}()
 
-	log.Printf("listening on %%s", server.Addr)
+	%s
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		return err
 	}
@@ -313,7 +355,7 @@ func mustDuration(value string) time.Duration {
 	}
 	return duration
 }
-`, module, module, module, middlewareImport, mongoTimeout(ctx), mongoURIEnv(ctx), ctx.Config.Mongo.Connection.Database, repoVars.String(), serviceVars.String(), serverFields.String(), mongoAuthBasicUsernameEnv(ctx), mongoAuthBasicPasswordEnv(ctx), mongoAuthBasicRealm(ctx), mongoQuotedSlice(mongoAuthBasicRoles(ctx)), mongoAuthJWTSecretEnv(ctx), mongoAuthJWTHeader(ctx), mongoAuthJWTScheme(ctx), mongoAuthJWTIssuer(ctx), mongoAuthJWTAudience(ctx), mongoAuthRoleClaim(ctx), mongoReadinessRouteSource(ctx, readinessPath), handlerSetup, mongoHTTPAddr(ctx), defaultString(ctx.Config.Rest.HTTP.Timeouts.ReadHeader, "5s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Read, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Write, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Idle, "60s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Shutdown, "10s"))
+`, zapImport, module, module, module, middlewareImport, loggingImport, mongoLoggerSetup(ctx), mongoTimeout(ctx), mongoURIEnv(ctx), ctx.Config.Mongo.Connection.Database, repoVars.String(), serviceVars.String(), serverFields.String(), mongoAuthBasicUsernameEnv(ctx), mongoAuthBasicPasswordEnv(ctx), mongoAuthBasicRealm(ctx), mongoQuotedSlice(mongoAuthBasicRoles(ctx)), mongoAuthJWTSecretEnv(ctx), mongoAuthJWTHeader(ctx), mongoAuthJWTScheme(ctx), mongoAuthJWTIssuer(ctx), mongoAuthJWTAudience(ctx), mongoAuthRoleClaim(ctx), mongoReadinessRouteSource(ctx, readinessPath), handlerSetup, mongoHTTPAddr(ctx), defaultString(ctx.Config.Rest.HTTP.Timeouts.ReadHeader, "5s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Read, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Write, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Idle, "60s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Shutdown, "10s"), mongoShutdownLog(ctx), mongoStartupLog(ctx))
 }
 
 func mongoServerResponseSource() string {
@@ -370,7 +412,7 @@ func writeError(w http.ResponseWriter, status int, code string, err error) {
 
 func mongoMiddlewareEnabled(ctx Context) bool {
 	middleware := ctx.Config.Rest.HTTP.Middleware
-	return middleware.CORS.Enabled.Bool() || middleware.SecurityHeaders.Enabled.Bool() || middleware.RateLimit.Enabled.Bool()
+	return middleware.CORS.Enabled.Bool() || middleware.SecurityHeaders.Enabled.Bool() || middleware.RateLimit.Enabled.Bool() || middleware.Recovery.Enabled.Bool() || middleware.RequestID.Enabled.Bool()
 }
 
 func mongoMiddlewareSource(ctx Context) string {
@@ -392,10 +434,13 @@ func mongoMiddlewareSource(ctx Context) string {
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func CORS(next http.Handler) http.Handler {
@@ -451,6 +496,37 @@ func setHeader(w http.ResponseWriter, name, value string) {
 	}
 }
 
+func Recovery(next http.Handler) http.Handler {
+	if !%t {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf("panic recovered: %%v", recovered)
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+func RequestID(next http.Handler) http.Handler {
+	if !%t {
+		return next
+	}
+	const header = %q
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get(header)
+		if id == "" {
+			id = uuid.NewString()
+		}
+		r.Header.Set(header, id)
+		w.Header().Set(header, id)
+		next.ServeHTTP(w, r)
+	})
+}
+
 func RateLimit(requestsPerWindow int, window time.Duration, next http.Handler) http.Handler {
 	if !%t || requestsPerWindow < 1 || window <= 0 {
 		return next
@@ -494,7 +570,7 @@ func clientIP(r *http.Request) string {
 	}
 	return r.RemoteAddr
 }
-`, corsEnabled, origins, headers, methods, exposeHeaders, exposeHeaders, middleware.CORS.AllowCredentials, maxAge, maxAge, securityEnabled, middleware.SecurityHeaders.ContentTypeOptions, middleware.SecurityHeaders.FrameOptions, middleware.SecurityHeaders.ReferrerPolicy, middleware.SecurityHeaders.PermissionsPolicy, middleware.SecurityHeaders.ContentSecurityPolicy, middleware.SecurityHeaders.StrictTransportSecurity, rateEnabled)
+`, corsEnabled, origins, headers, methods, exposeHeaders, exposeHeaders, middleware.CORS.AllowCredentials, maxAge, maxAge, securityEnabled, middleware.SecurityHeaders.ContentTypeOptions, middleware.SecurityHeaders.FrameOptions, middleware.SecurityHeaders.ReferrerPolicy, middleware.SecurityHeaders.PermissionsPolicy, middleware.SecurityHeaders.ContentSecurityPolicy, middleware.SecurityHeaders.StrictTransportSecurity, middleware.Recovery.Enabled.Bool(), middleware.RequestID.Enabled.Bool(), defaultString(middleware.RequestID.Header, "X-Request-ID"), rateEnabled)
 }
 
 func mongoDomainSource() string {
@@ -1563,6 +1639,31 @@ func mongoURIEnv(ctx Context) string {
 		return ctx.Config.Mongo.Connection.URIEnv
 	}
 	return "MONGO_URI"
+}
+
+func mongoLoggerSetup(ctx Context) string {
+	if !ctx.Config.Rest.Logging.Enabled.Bool() {
+		return ""
+	}
+	return `logger, err := logging.New()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = logger.Sync() }()`
+}
+
+func mongoStartupLog(ctx Context) string {
+	if ctx.Config.Rest.Logging.Enabled.Bool() {
+		return `logger.Info("starting HTTP server", zap.String("addr", server.Addr))`
+	}
+	return `log.Printf("listening on %s", server.Addr)`
+}
+
+func mongoShutdownLog(ctx Context) string {
+	if ctx.Config.Rest.Logging.Enabled.Bool() {
+		return `logger.Error("HTTP server shutdown error", zap.Error(err))`
+	}
+	return `log.Printf("HTTP server shutdown error: %v", err)`
 }
 
 func mongoReadinessRouteSource(ctx Context, path string) string {

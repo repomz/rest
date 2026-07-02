@@ -367,6 +367,8 @@ func ensureModuleRequirements(goMod string, rest config.Rest) error {
 	}
 	text := string(content)
 	requirements := map[string]string{}
+	requirements["github.com/google/uuid"] = "v1.6.0"
+	requirements["github.com/gorilla/mux"] = "v1.8.1"
 	requirements["github.com/joho/godotenv"] = "v1.5.1"
 	if rest.Auth.Bool() {
 		requirements["github.com/golang-jwt/jwt"] = "v3.2.2+incompatible"

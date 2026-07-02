@@ -14,6 +14,23 @@ import (
 )
 
 func renderFile(path, tmpl string, data renderData) error {
+	out, err := renderTemplateBytes(path, tmpl, data)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	mode := os.FileMode(0o644)
+	if strings.HasSuffix(path, ".sh") {
+		mode = 0o755
+	} else if filepath.Base(path) == ".env" {
+		mode = 0o600
+	}
+	return os.WriteFile(path, out, mode)
+}
+
+func renderTemplateBytes(path, tmpl string, data renderData) ([]byte, error) {
 	var buf bytes.Buffer
 	funcs := template.FuncMap{
 		"lower": strings.ToLower,
@@ -364,26 +381,17 @@ func renderFile(path, tmpl string, data renderData) error {
 		"routePath": applicationPath,
 	}
 	if err := template.Must(template.New(filepath.Base(path)).Funcs(funcs).Parse(tmpl)).Execute(&buf, data); err != nil {
-		return err
+		return nil, err
 	}
 	out := buf.Bytes()
 	if strings.HasSuffix(path, ".go") {
 		formatted, err := format.Source(out)
 		if err != nil {
-			return fmt.Errorf("format %s: %w\n%s", path, err, out)
+			return nil, fmt.Errorf("format %s: %w\n%s", path, err, out)
 		}
 		out = formatted
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	mode := os.FileMode(0o644)
-	if strings.HasSuffix(path, ".sh") {
-		mode = 0o755
-	} else if filepath.Base(path) == ".env" {
-		mode = 0o600
-	}
-	return os.WriteFile(path, out, mode)
+	return out, nil
 }
 
 func tidyGeneratedGo(src []byte) []byte {
