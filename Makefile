@@ -19,16 +19,16 @@ vuln:
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 generated-examples:
-	$(GO) test ./cmd/rest -run 'TestE2E'
+	$(GO) test ./internal/cli -run 'TestE2E'
 
 golden:
-	$(GO) test ./cmd/rest -run 'TestE2EGoldenSnapshots' -count=1
+	$(GO) test ./internal/cli -run 'TestE2EGoldenSnapshots' -count=1
 
 docker-smoke:
-	REST_DOCKER_SMOKE=1 $(GO) test ./cmd/rest -run 'TestE2EDockerBuildSmoke' -count=1
+	REST_DOCKER_SMOKE=1 $(GO) test ./internal/cli -run 'TestE2EDockerBuildSmoke' -count=1
 
 runtime-e2e:
-	REST_RUNTIME_E2E=1 $(GO) test ./cmd/rest -run 'TestRuntimeE2E' -count=1 -timeout 6m
+	REST_RUNTIME_E2E=1 $(GO) test ./internal/cli -run 'TestRuntimeE2E' -count=1 -timeout 6m
 
 check:
 	@test -z "$$(gofmt -l .)" || (gofmt -l . && exit 1)
