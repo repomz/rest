@@ -65,6 +65,9 @@ func (MongoFeature) Generate(ctx Context) error {
 		files["internal/app/repository/mongorepo/"+name+"_repo.go"] = mongoRepositorySource(model)
 		files["internal/app/services/"+name+".go"] = mongoServiceSource(model)
 		files["internal/app/transport/httpserver/"+name+"_handlers.go"] = mongoHandlersSource(model)
+		if ctx.Config.Rest.Testing.HandlerTests.Bool() {
+			files["internal/app/transport/httpserver/"+name+"_handlers_test.go"] = mongoHandlersTestSource(model)
+		}
 	}
 	openAPIOutput := ctx.Config.Rest.OpenAPI.Output
 	if openAPIOutput == "" {
@@ -943,19 +946,18 @@ func mongoHTTPServerSource(ctx Context, models []generator.MongoModel) string {
 	if module == "" {
 		module = "generated-mongo-api"
 	}
+	var interfaces strings.Builder
 	var fields strings.Builder
 	var routes strings.Builder
 	for _, model := range models {
 		if model.Embedded || model.Collection == "" {
 			continue
 		}
-		fmt.Fprintf(&fields, "\t%sService services.%sService\n", model.Name, model.Name)
+		fmt.Fprint(&interfaces, mongoServiceInterfaceSource(model))
+		fmt.Fprintf(&fields, "\t%sService %sService\n", model.Name, model.Name)
 		base := "/" + strings.Trim(model.Collection, "/")
 		addMongoRoute(&routes, ctx, "GET", base, "h.GetAll"+pluralizeGoName(model.Name))
 		addMongoRoute(&routes, ctx, "POST", base, "h.Create"+model.Name)
-		addMongoRoute(&routes, ctx, "GET", base+"/{id}", "h.Get"+model.Name+"ByID")
-		addMongoRoute(&routes, ctx, "PATCH", base+"/{id}", "h.Update"+model.Name)
-		addMongoRoute(&routes, ctx, "DELETE", base+"/{id}", "h.Delete"+model.Name)
 		for _, method := range model.Methods {
 			httpMethod := method.Method
 			if httpMethod == "" {
@@ -963,6 +965,9 @@ func mongoHTTPServerSource(ctx Context, models []generator.MongoModel) string {
 			}
 			addMongoRoute(&routes, ctx, httpMethod, method.Path, "h."+method.Name)
 		}
+		addMongoRoute(&routes, ctx, "GET", base+"/{id}", "h.Get"+model.Name+"ByID")
+		addMongoRoute(&routes, ctx, "PATCH", base+"/{id}", "h.Update"+model.Name)
+		addMongoRoute(&routes, ctx, "DELETE", base+"/{id}", "h.Delete"+model.Name)
 	}
 	rootPath := routePath(ctx.Config.Rest.HTTP.BasePath, "/")
 	healthPath := routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.HTTP.Health.Path)
@@ -971,13 +976,17 @@ func mongoHTTPServerSource(ctx Context, models []generator.MongoModel) string {
 	return fmt.Sprintf(`package httpserver
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"%s/internal/app/common/server"
-	"%s/internal/app/services"
+	"%s/internal/app/domain"
 )
+
+%s
 
 type HttpServer struct {
 %s	BasicAuth    BasicAuthConfig
@@ -999,7 +1008,23 @@ func (h HttpServer) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc(%q, h.OpenAPISpec).Methods(http.MethodGet)
 	router.HandleFunc(%q, h.SwaggerUI).Methods(http.MethodGet)
 %s}
-`, module, module, fields.String(), rootPath, healthPath, specPath, uiPath, routes.String())
+`, module, module, interfaces.String(), fields.String(), rootPath, healthPath, specPath, uiPath, routes.String())
+}
+
+func mongoServiceInterfaceSource(model generator.MongoModel) string {
+	var custom strings.Builder
+	for _, method := range model.Methods {
+		fmt.Fprintf(&custom, "\t%s(ctx context.Context, params map[string]any) (any, error)\n", method.Name)
+	}
+	return fmt.Sprintf(`type %sService interface {
+	List(ctx context.Context) ([]domain.Document, error)
+	Create(ctx context.Context, input domain.Document) (domain.Document, error)
+	GetByID(ctx context.Context, id primitive.ObjectID) (domain.Document, error)
+	Update(ctx context.Context, id primitive.ObjectID, input domain.Document) (domain.Document, error)
+	Delete(ctx context.Context, id primitive.ObjectID) error
+%s}
+
+`, model.Name, custom.String())
 }
 
 func mongoSwaggerSource(ctx Context, swagger string) string {
@@ -1209,6 +1234,123 @@ func (h HttpServer) Delete%s(w http.ResponseWriter, r *http.Request) {
 
 var _ = json.Valid
 %s`, mongoModulePlaceholder(), pluralizeGoName(model.Name), model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, custom.String())
+}
+
+func mongoHandlersTestSource(model generator.MongoModel) string {
+	var customServiceMethods strings.Builder
+	var customRoutes strings.Builder
+	var customCases strings.Builder
+	for _, method := range model.Methods {
+		fmt.Fprintf(&customServiceMethods, `
+
+func (fake%sService) %s(ctx context.Context, params map[string]any) (any, error) {
+	return domain.Document{"ok": true}, nil
+}
+`, model.Name, method.Name)
+		httpMethod := method.Method
+		if httpMethod == "" {
+			httpMethod = mongoHTTPMethodForOperation(method.Operation)
+		}
+		body := ""
+		if mongoMethodNeedsBody(method) {
+			body = `{"title":"updated"}`
+		}
+		fmt.Fprintf(&customRoutes, "\trouter.HandleFunc(%q, httpServer.%s).Methods(%s)\n", method.Path, method.Name, mongoHTTPMethodConst(httpMethod))
+		fmt.Fprintf(&customCases, "\t\t{name: %q, method: %s, url: %q, body: `%s`},\n", method.Name, mongoHTTPMethodConst(httpMethod), mongoMethodTestURL(method), body)
+	}
+	base := "/" + strings.Trim(model.Collection, "/")
+	plural := pluralizeGoName(model.Name)
+	return fmt.Sprintf(`package httpserver
+
+import (
+	"bytes"
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+
+	"{{MODULE}}/internal/app/domain"
+)
+
+type fake%sService struct{}
+
+func sample%sDocument() domain.Document {
+	return domain.Document{"id": primitive.NewObjectID().Hex(), "title": "sample"}
+}
+
+func (fake%sService) List(ctx context.Context) ([]domain.Document, error) {
+	return []domain.Document{sample%sDocument()}, nil
+}
+
+func (fake%sService) Create(ctx context.Context, input domain.Document) (domain.Document, error) {
+	if input == nil {
+		input = domain.Document{}
+	}
+	input["id"] = primitive.NewObjectID().Hex()
+	return input, nil
+}
+
+func (fake%sService) GetByID(ctx context.Context, id primitive.ObjectID) (domain.Document, error) {
+	return sample%sDocument(), nil
+}
+
+func (fake%sService) Update(ctx context.Context, id primitive.ObjectID, input domain.Document) (domain.Document, error) {
+	if input == nil {
+		input = domain.Document{}
+	}
+	input["id"] = id.Hex()
+	return input, nil
+}
+
+func (fake%sService) Delete(ctx context.Context, id primitive.ObjectID) error {
+	return nil
+}
+%s
+
+func test%sHandlersRouter() *mux.Router {
+	httpServer := HttpServer{%sService: fake%sService{}}
+	router := mux.NewRouter()
+	router.HandleFunc(%q, httpServer.GetAll%s).Methods(http.MethodGet)
+	router.HandleFunc(%q, httpServer.Create%s).Methods(http.MethodPost)
+%s	router.HandleFunc(%q, httpServer.Get%sByID).Methods(http.MethodGet)
+	router.HandleFunc(%q, httpServer.Update%s).Methods(http.MethodPatch)
+	router.HandleFunc(%q, httpServer.Delete%s).Methods(http.MethodDelete)
+	return router
+}
+
+func Test%sHandlers(t *testing.T) {
+	router := test%sHandlersRouter()
+	id := primitive.NewObjectID().Hex()
+	tests := []struct {
+		name   string
+		method string
+		url    string
+		body   string
+	}{
+		{name: "get all %s", method: http.MethodGet, url: %q},
+		{name: "create %s", method: http.MethodPost, url: %q, body: `+"`"+`{"title":"sample"}`+"`"+`},
+		{name: "get %s by id", method: http.MethodGet, url: %q + "/" + id},
+		{name: "update %s", method: http.MethodPatch, url: %q + "/" + id, body: `+"`"+`{"title":"updated"}`+"`"+`},
+		{name: "delete %s", method: http.MethodDelete, url: %q + "/" + id},
+%s	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.url, bytes.NewBufferString(tt.body))
+			if tt.body != "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected status %%d, got %%d: %%s", http.StatusOK, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+`, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, model.Name, customServiceMethods.String(), model.Name, model.Name, model.Name, base, plural, base, model.Name, customRoutes.String(), base+"/{id}", model.Name, base+"/{id}", model.Name, base+"/{id}", model.Name, model.Name, model.Name, strings.ToLower(model.Collection), base, strings.ToLower(model.Name), base, strings.ToLower(model.Name), base, strings.ToLower(model.Name), base, strings.ToLower(model.Name), base, customCases.String())
 }
 
 func mongoHandlerMethodSource(model generator.MongoModel, method generator.MongoMethod) string {
@@ -1635,6 +1777,58 @@ func mongoHTTPMethodConst(method string) string {
 		return "http.MethodOptions"
 	default:
 		return ""
+	}
+}
+
+func mongoMethodNeedsBody(method generator.MongoMethod) bool {
+	for _, param := range method.Params {
+		if param.Source == "body" {
+			return true
+		}
+	}
+	switch strings.ToLower(method.Operation) {
+	case "update_one", "aggregate":
+		return strings.EqualFold(method.Method, "POST") || strings.EqualFold(method.Method, "PUT") || strings.EqualFold(method.Method, "PATCH")
+	default:
+		return false
+	}
+}
+
+func mongoMethodTestURL(method generator.MongoMethod) string {
+	path := method.Path
+	var query []string
+	for _, param := range method.Params {
+		value := mongoMethodTestParamValue(param.Type)
+		switch param.Source {
+		case "path":
+			path = strings.ReplaceAll(path, "{"+param.Name+"}", value)
+		case "query", "":
+			if param.Required {
+				query = append(query, param.Name+"="+value)
+			}
+		}
+	}
+	for _, param := range method.Params {
+		path = strings.ReplaceAll(path, "{"+param.Name+"}", mongoMethodTestParamValue(param.Type))
+	}
+	if len(query) > 0 {
+		path += "?" + strings.Join(query, "&")
+	}
+	return path
+}
+
+func mongoMethodTestParamValue(typ string) string {
+	switch strings.ToLower(typ) {
+	case "object_id":
+		return "000000000000000000000001"
+	case "int", "int32", "int64":
+		return "1"
+	case "float", "float64", "double", "decimal":
+		return "1.5"
+	case "bool", "boolean":
+		return "true"
+	default:
+		return "sample"
 	}
 }
 
