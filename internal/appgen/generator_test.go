@@ -215,6 +215,52 @@ methods:
 	}
 }
 
+func TestListEndpointsShowsMongoSourcesAndPendingAuth(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "rest_config")
+	if err := config.GenerateForMongoExample(configDir); err != nil {
+		t.Fatal(err)
+	}
+	patchFile(t, filepath.Join(configDir, "rest.yaml"), map[string]string{
+		"auth: disable": "auth: enable",
+	})
+	endpoints, err := ListEndpoints(configDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]EndpointInfo{}
+	for _, endpoint := range endpoints {
+		got[endpoint.Method+" "+endpoint.Path] = endpoint
+	}
+	if got["GET /health"].Access != "public" || got["GET /health"].Source != "system" {
+		t.Fatalf("health endpoint = %+v", got["GET /health"])
+	}
+	create := got["POST /items"]
+	if create.Name != "CreateItem" || create.Source != "mongo" || create.Access != "pending" {
+		t.Fatalf("create endpoint = %+v", create)
+	}
+	if got["GET /items/by-status"].Name != "FindItemsByStatus" || got["GET /items/by-status"].Source != "mongo" {
+		t.Fatalf("custom endpoint = %+v", got["GET /items/by-status"])
+	}
+}
+
+func TestApplyEndpointAccessUsesConfiguredRoles(t *testing.T) {
+	bundle := minimalBundle()
+	bundle.Rest.Auth = config.Enabled(true)
+	bundle.Auth = &config.Auth{
+		Authorization: config.AuthAuthorization{DefaultPolicy: "deny"},
+		Endpoints: []config.AuthEndpoint{{
+			Name: "CreateItem", Method: "POST", Path: "/items",
+			RequireAuth: true, Roles: []string{"writer", "admin"},
+		}},
+	}
+	info := EndpointInfo{Name: "CreateItem", Method: "POST", Path: "/items"}
+	applyEndpointAccess(&info, bundle, false)
+	if info.Access != "auth" || strings.Join(info.Roles, ",") != "admin,writer" {
+		t.Fatalf("endpoint access = %+v", info)
+	}
+}
+
 func minimalBundle() config.Bundle {
 	return config.Bundle{
 		Rest: config.Rest{

@@ -104,6 +104,7 @@ rest gen
 | `rest init --example mongo` | Create a standalone MongoDB example contract |
 | `rest gen` | Generate the REST application |
 | `rest doctor` | Validate configs, generated files, tooling, Docker/OpenAPI/auth readiness |
+| `rest list endpoints` | Print the currently discovered endpoints with source and access policy |
 | `rest update` | Update the CLI from GitHub Releases |
 | `rest update --check` | Check whether a newer CLI release is available without installing it |
 | `rest changelog` | Print the latest GitHub Release notes |
@@ -128,6 +129,8 @@ To run SQLC manually, set `auto_sqlc: disable` in `rest_config/rest.yaml`, execu
 For MongoDB projects, `rest gen` reads active `rest_config/rest_mongo/*.yaml` contracts, ignoring system files that start with `rest_`, and generates a layered MongoDB API: domain documents, Mongo repositories, services, HTTP handlers, custom method routes, OpenAPI, and optional Docker/Docker Compose output.
 
 Use `rest doctor` before or after `rest gen` to catch common setup issues: invalid YAML, missing enabled configs, broken SQLC/Mongo contract paths, auth policy conflicts, Docker/OpenAPI output gaps, and generated-project readiness.
+
+Use `rest list endpoints` to inspect the API surface that `rest` currently discovers from SQLC, Mongo contracts, system routes, and auth configuration.
 
 ### Authentication and authorization
 

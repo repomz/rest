@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"runtime/debug"
+	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/repomz/rest/internal/appgen"
@@ -34,6 +36,8 @@ func run(args []string) error {
 		return runGen(args[1:])
 	case "doctor":
 		return runDoctor(args[1:])
+	case "list":
+		return runList(args[1:])
 	case "update":
 		return runUpdate(args[1:])
 	case "changelog":
@@ -131,6 +135,39 @@ func runGen(args []string) error {
 	}
 	appGenerator := appgen.New(appgen.DefaultRegistry()...)
 	return appGenerator.Generate(configDir)
+}
+
+func runList(args []string) error {
+	if len(args) != 1 || args[0] != "endpoints" {
+		return fmt.Errorf("usage: rest list endpoints")
+	}
+	if err := config.ValidateYAMLTree("rest_config"); err != nil {
+		return err
+	}
+	endpoints, err := appgen.ListEndpoints("rest_config")
+	if err != nil {
+		return err
+	}
+	printEndpointList(os.Stdout, endpoints)
+	return nil
+}
+
+func printEndpointList(w io.Writer, endpoints []appgen.EndpointInfo) {
+	if len(endpoints) == 0 {
+		fmt.Fprintln(w, "No endpoints found.")
+		return
+	}
+	table := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(table, "METHOD\tPATH\tNAME\tSOURCE\tACCESS\tROLES")
+	for _, endpoint := range endpoints {
+		roles := "-"
+		if len(endpoint.Roles) > 0 {
+			roles = strings.Join(endpoint.Roles, ",")
+		}
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			endpoint.Method, endpoint.Path, endpoint.Name, endpoint.Source, endpoint.Access, roles)
+	}
+	_ = table.Flush()
 }
 
 func runUpdate(args []string) error {
@@ -279,7 +316,7 @@ func parseUpdateOptions(args []string) (updateOptions, error) {
 }
 
 func usageError() error {
-	return fmt.Errorf("usage: rest init [--example sql|mongo] | rest gen | rest doctor | rest update [--check] [--version vX.Y.Z] [--force] | rest changelog [--version vX.Y.Z] | rest version")
+	return fmt.Errorf("usage: rest init [--example sql|mongo] | rest gen | rest doctor | rest list endpoints | rest update [--check] [--version vX.Y.Z] [--force] | rest changelog [--version vX.Y.Z] | rest version")
 }
 
 func currentVersion() string {

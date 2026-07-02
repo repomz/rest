@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/repomz/rest/internal/appgen"
 	"github.com/repomz/rest/internal/selfupdate"
 )
 
@@ -238,6 +239,32 @@ func TestRunGenValidatesYAMLBeforeGeneration(t *testing.T) {
 func TestRunGenRejectsRemovedPathArgument(t *testing.T) {
 	if err := runGen([]string{"--path", "rest_config"}); err == nil {
 		t.Fatal("expected removed gen path argument to be rejected")
+	}
+}
+
+func TestRunListRejectsUnknownArguments(t *testing.T) {
+	for _, args := range [][]string{nil, {"routes"}, {"endpoints", "--json"}} {
+		if err := runList(args); err == nil {
+			t.Fatalf("expected list arguments to be rejected: %v", args)
+		}
+	}
+}
+
+func TestPrintEndpointList(t *testing.T) {
+	var output bytes.Buffer
+	printEndpointList(&output, []appgen.EndpointInfo{
+		{Name: "Health", Method: "GET", Path: "/health", Source: "system", Access: "public"},
+		{Name: "CreateItem", Method: "POST", Path: "/items", Source: "mongo", Access: "auth", Roles: []string{"admin"}},
+	})
+	text := output.String()
+	for _, want := range []string{
+		"METHOD", "PATH", "NAME", "SOURCE", "ACCESS", "ROLES",
+		"GET", "/health", "Health", "system", "public",
+		"POST", "/items", "CreateItem", "mongo", "auth", "admin",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("endpoint list output does not contain %q:\n%s", want, text)
+		}
 	}
 }
 
