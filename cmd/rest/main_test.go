@@ -103,6 +103,30 @@ func TestPrintUpdateCheckResult(t *testing.T) {
 	}
 }
 
+func TestConfirmInitUpdate(t *testing.T) {
+	for _, test := range []struct {
+		input string
+		want  bool
+	}{
+		{input: "y\n", want: true},
+		{input: "yes\n", want: true},
+		{input: "\n", want: false},
+		{input: "no\n", want: false},
+	} {
+		var output bytes.Buffer
+		got := confirmInitUpdate(strings.NewReader(test.input), &output, selfupdate.Result{
+			PreviousVersion: "v0.1.0",
+			Version:         "v0.2.0",
+		})
+		if got != test.want {
+			t.Fatalf("confirmInitUpdate(%q) = %v, want %v", test.input, got, test.want)
+		}
+		if !strings.Contains(output.String(), "A newer rest version is available: v0.2.0") {
+			t.Fatalf("unexpected prompt output:\n%s", output.String())
+		}
+	}
+}
+
 func TestResolveVersion(t *testing.T) {
 	tests := []struct {
 		name          string

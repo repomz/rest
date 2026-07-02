@@ -95,6 +95,8 @@ rest init
 rest gen
 ```
 
+When `rest init` runs in an interactive terminal, it briefly checks whether a newer CLI release is available. If an update exists, it asks whether to install it first. Declining the update, running non-interactively, or having no network access does not block initialization.
+
 ## Commands
 
 | Command | Description |
