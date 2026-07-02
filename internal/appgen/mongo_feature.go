@@ -49,6 +49,13 @@ func (MongoFeature) Generate(ctx Context) error {
 		}
 		files["internal/app/logging/logger.go"] = source
 	}
+	if ctx.Config.Rest.Observability.Metrics.Enabled.Bool() {
+		source, err := generator.BuildMetricsSource(features)
+		if err != nil {
+			return err
+		}
+		files["internal/app/metrics/metrics.go"] = source
+	}
 	files["internal/app/transport/httpserver/auth_middleware.go"] = mongoAuthMiddlewareSource(ctx)
 	for _, model := range models {
 		if model.Embedded || model.Collection == "" {
@@ -162,8 +169,15 @@ func mongoFeatureOptions(ctx Context, models []generator.MongoModel) generator.F
 			DeploymentPath:  ctx.Config.Rest.Features.DeploymentGuide.Output,
 		},
 		Metrics: generator.MetricsFeatures{
-			Enabled: ctx.Config.Rest.Observability.Metrics.Enabled.Bool(),
-			Path:    ctx.Config.Rest.Observability.Metrics.Path,
+			Enabled:          ctx.Config.Rest.Observability.Metrics.Enabled.Bool(),
+			Provider:         ctx.Config.Rest.Observability.Metrics.Provider,
+			Path:             ctx.Config.Rest.Observability.Metrics.Path,
+			Namespace:        ctx.Config.Rest.Observability.Metrics.Namespace,
+			HTTPRequests:     ctx.Config.Rest.Observability.Metrics.Collect.HTTPRequests,
+			RequestDuration:  ctx.Config.Rest.Observability.Metrics.Collect.RequestDuration,
+			ResponseSize:     ctx.Config.Rest.Observability.Metrics.Collect.ResponseSize,
+			InFlightRequests: ctx.Config.Rest.Observability.Metrics.Collect.InFlightRequests,
+			Labels:           ctx.Config.Rest.Observability.Metrics.Labels,
 		},
 		Docker: generator.DockerFeatures{
 			Enabled:            ctx.Config.Rest.Docker.Enabled.Bool(),
@@ -218,6 +232,10 @@ func mongoMainSource(ctx Context, models []generator.MongoModel) string {
 		loggingImport = fmt.Sprintf("\n\t%q", module+"/internal/app/logging")
 		zapImport = "\n\t\"go.uber.org/zap\""
 	}
+	metricsImport := ""
+	if ctx.Config.Rest.Observability.Metrics.Enabled.Bool() {
+		metricsImport = fmt.Sprintf("\n\t%q", module+"/internal/app/metrics")
+	}
 	handlerSetup := "handler := http.Handler(router)"
 	if ctx.Config.Rest.HTTP.Middleware.RateLimit.Enabled.Bool() {
 		window := ctx.Config.Rest.HTTP.Middleware.RateLimit.Window
@@ -238,10 +256,14 @@ func mongoMainSource(ctx Context, models []generator.MongoModel) string {
 	if ctx.Config.Rest.HTTP.Middleware.RequestID.Enabled.Bool() {
 		handlerSetup += "\n\thandler = middleware.RequestID(handler)"
 	}
+	if ctx.Config.Rest.Observability.Metrics.Enabled.Bool() {
+		handlerSetup += "\n\thandler = metrics.Middleware(handler)"
+	}
 	if ctx.Config.Rest.Logging.Enabled.Bool() {
 		handlerSetup += "\n\thandler = logging.Middleware(logger, handler)"
 	}
 	readinessPath := routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.HTTP.Readiness.Path)
+	metricsPath := routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.Observability.Metrics.Path)
 	return fmt.Sprintf(`package main
 
 import (
@@ -261,6 +283,7 @@ import (
 	"%s/internal/app/repository/mongorepo"
 	"%s/internal/app/services"
 	"%s/internal/app/transport/httpserver"
+%s
 %s
 %s
 )
@@ -312,6 +335,7 @@ func run() error {
 	httpServer.RegisterRoutes(router)
 	%s
 	%s
+	%s
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", %q),
 		Handler:           handler,
@@ -355,7 +379,7 @@ func mustDuration(value string) time.Duration {
 	}
 	return duration
 }
-`, zapImport, module, module, module, middlewareImport, loggingImport, mongoLoggerSetup(ctx), mongoTimeout(ctx), mongoURIEnv(ctx), ctx.Config.Mongo.Connection.Database, repoVars.String(), serviceVars.String(), serverFields.String(), mongoAuthBasicUsernameEnv(ctx), mongoAuthBasicPasswordEnv(ctx), mongoAuthBasicRealm(ctx), mongoQuotedSlice(mongoAuthBasicRoles(ctx)), mongoAuthJWTSecretEnv(ctx), mongoAuthJWTHeader(ctx), mongoAuthJWTScheme(ctx), mongoAuthJWTIssuer(ctx), mongoAuthJWTAudience(ctx), mongoAuthRoleClaim(ctx), mongoReadinessRouteSource(ctx, readinessPath), handlerSetup, mongoHTTPAddr(ctx), defaultString(ctx.Config.Rest.HTTP.Timeouts.ReadHeader, "5s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Read, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Write, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Idle, "60s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Shutdown, "10s"), mongoShutdownLog(ctx), mongoStartupLog(ctx))
+`, zapImport, module, module, module, middlewareImport, loggingImport, metricsImport, mongoLoggerSetup(ctx), mongoTimeout(ctx), mongoURIEnv(ctx), ctx.Config.Mongo.Connection.Database, repoVars.String(), serviceVars.String(), serverFields.String(), mongoAuthBasicUsernameEnv(ctx), mongoAuthBasicPasswordEnv(ctx), mongoAuthBasicRealm(ctx), mongoQuotedSlice(mongoAuthBasicRoles(ctx)), mongoAuthJWTSecretEnv(ctx), mongoAuthJWTHeader(ctx), mongoAuthJWTScheme(ctx), mongoAuthJWTIssuer(ctx), mongoAuthJWTAudience(ctx), mongoAuthRoleClaim(ctx), mongoReadinessRouteSource(ctx, readinessPath), mongoMetricsRouteSource(ctx, metricsPath), handlerSetup, mongoHTTPAddr(ctx), defaultString(ctx.Config.Rest.HTTP.Timeouts.ReadHeader, "5s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Read, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Write, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Idle, "60s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Shutdown, "10s"), mongoShutdownLog(ctx), mongoStartupLog(ctx))
 }
 
 func mongoServerResponseSource() string {
@@ -1683,6 +1707,16 @@ func mongoReadinessRouteSource(ctx Context, path string) string {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte("{\"status\":\"ready\"}\n"))
 	}).Methods(http.MethodGet)`, path)
+}
+
+func mongoMetricsRouteSource(ctx Context, path string) string {
+	if !ctx.Config.Rest.Observability.Metrics.Enabled.Bool() {
+		return ""
+	}
+	if path == "" || path == "/" {
+		path = routePath(ctx.Config.Rest.HTTP.BasePath, "/metrics")
+	}
+	return fmt.Sprintf(`router.HandleFunc(%q, metrics.Handler).Methods(http.MethodGet)`, path)
 }
 
 func defaultString(value, fallback string) string {

@@ -198,6 +198,12 @@ func validateConfig(bundle config.Bundle) error {
 	if bundle.Rest.Observability.Metrics.Enabled.Bool() && bundle.Rest.Observability.Metrics.Path == "" {
 		return fmt.Errorf("observability.metrics.path is required")
 	}
+	if bundle.Rest.Observability.Metrics.Enabled.Bool() {
+		collect := bundle.Rest.Observability.Metrics.Collect
+		if !collect.HTTPRequests && !collect.RequestDuration && !collect.ResponseSize && !collect.InFlightRequests {
+			return fmt.Errorf("observability.metrics.collect must enable at least one metric")
+		}
+	}
 	for _, label := range bundle.Rest.Observability.Metrics.Labels {
 		if label != "method" && label != "route" && label != "status" {
 			return fmt.Errorf("unsupported metrics label %q", label)
@@ -379,6 +385,9 @@ func ensureModuleRequirements(goMod string, rest config.Rest) error {
 	}
 	if rest.Logging.Enabled.Bool() {
 		requirements["go.uber.org/zap"] = "v1.27.0"
+	}
+	if rest.Observability.Metrics.Enabled.Bool() {
+		requirements["github.com/prometheus/client_golang"] = "v1.20.5"
 	}
 	if rest.Logging.Enabled.Bool() && rest.Logging.Output.Type == "file" && rest.Logging.Rotation.Enabled.Bool() {
 		requirements["gopkg.in/natefinch/lumberjack.v2"] = "v2.2.1"

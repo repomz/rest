@@ -69,6 +69,45 @@ func TestE2EGoldenSnapshots(t *testing.T) {
 	assertGoldenSnapshot(t, "mongo.txt", mongoDir)
 }
 
+func TestE2EGeneratesPrometheusMetricsForSQLAndMongo(t *testing.T) {
+	t.Run("sql", func(t *testing.T) {
+		projectDir := filepath.Join(t.TempDir(), "sql-metrics-app")
+		if err := os.MkdirAll(projectDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		withWorkingDir(t, projectDir)
+		if err := run([]string{"init"}); err != nil {
+			t.Fatal(err)
+		}
+		patchE2ERestConfig(t, filepath.Join(projectDir, "rest_config", "rest.yaml"))
+		enableMetricsForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"))
+		writeE2ESQLCInputs(t, projectDir)
+		writeE2ESQLCOutput(t, projectDir)
+		if err := run([]string{"gen"}); err != nil {
+			t.Fatal(err)
+		}
+		assertGeneratedMetrics(t, projectDir, []string{"SetDBStatsProvider", "open_connections"})
+		runGeneratedGoTest(t, projectDir)
+	})
+
+	t.Run("mongo", func(t *testing.T) {
+		projectDir := filepath.Join(t.TempDir(), "mongo-metrics-app")
+		if err := os.MkdirAll(projectDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		withWorkingDir(t, projectDir)
+		if err := run([]string{"init", "--example", "mongo"}); err != nil {
+			t.Fatal(err)
+		}
+		enableMetricsForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"))
+		if err := run([]string{"gen"}); err != nil {
+			t.Fatal(err)
+		}
+		assertGeneratedMetrics(t, projectDir, []string{"promhttp.Handler().ServeHTTP", "requests_in_flight"})
+		runGeneratedGoTest(t, projectDir)
+	})
+}
+
 func TestE2EDockerBuildSmoke(t *testing.T) {
 	if os.Getenv("REST_DOCKER_SMOKE") != "1" {
 		t.Skip("set REST_DOCKER_SMOKE=1 to build generated Dockerfiles")
@@ -234,6 +273,35 @@ func patchFileForE2E(t *testing.T, path string, replacements map[string]string) 
 	}
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func enableMetricsForE2E(t *testing.T, path string) {
+	t.Helper()
+	patchFileForE2E(t, path, map[string]string{
+		"    enabled: false                    # Generate a Prometheus metrics endpoint using the official Go client.": "    enabled: true                     # Generate a Prometheus metrics endpoint using the official Go client.",
+	})
+}
+
+func assertGeneratedMetrics(t *testing.T, projectDir string, expectedSource []string) {
+	t.Helper()
+	metricsPath := filepath.Join(projectDir, "internal", "app", "metrics", "metrics.go")
+	content, err := os.ReadFile(metricsPath)
+	if err != nil {
+		t.Fatalf("expected generated metrics source: %v", err)
+	}
+	text := string(content)
+	for _, expected := range expectedSource {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("generated metrics source missing %q:\n%s", expected, text)
+		}
+	}
+	goMod, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(goMod), "github.com/prometheus/client_golang") {
+		t.Fatalf("generated go.mod must include Prometheus client:\n%s", goMod)
 	}
 }
 

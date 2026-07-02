@@ -194,3 +194,100 @@ func TestDockerComposeTemplateIncludesAppAndPostgres(t *testing.T) {
 		}
 	}
 }
+
+func TestMetricsTemplateUsesPrometheusClientForSQLApps(t *testing.T) {
+	source, err := BuildMetricsSource(FeatureOptions{
+		Build: BuildFeatures{Backend: "sql"},
+		Metrics: MetricsFeatures{
+			Enabled:          true,
+			Namespace:        "myapp",
+			HTTPRequests:     true,
+			RequestDuration:  true,
+			ResponseSize:     true,
+			InFlightRequests: true,
+			Labels:           []string{"method", "route", "status"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		`"github.com/prometheus/client_golang/prometheus"`,
+		`"github.com/prometheus/client_golang/prometheus/promhttp"`,
+		"prometheus.NewCounterVec",
+		"prometheus.NewHistogramVec",
+		"prometheus.NewGauge",
+		"promhttp.Handler().ServeHTTP",
+		"func SetDBStatsProvider(provider func() sql.DBStats)",
+		`"open_connections"`,
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("metrics source missing %q:\n%s", expected, source)
+		}
+	}
+}
+
+func TestMetricsTemplateSkipsSQLDBStatsForMongoApps(t *testing.T) {
+	source, err := BuildMetricsSource(FeatureOptions{
+		Build: BuildFeatures{Backend: "mongo"},
+		Metrics: MetricsFeatures{
+			Enabled:          true,
+			Namespace:        "myapp",
+			HTTPRequests:     true,
+			RequestDuration:  true,
+			ResponseSize:     true,
+			InFlightRequests: true,
+			Labels:           []string{"method", "route", "status"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unexpected := range []string{
+		`"database/sql"`,
+		"SetDBStatsProvider",
+		`Name: "open_connections"`,
+		"updateDBStats",
+	} {
+		if strings.Contains(source, unexpected) {
+			t.Fatalf("mongo metrics source must not contain %q:\n%s", unexpected, source)
+		}
+	}
+	if !strings.Contains(source, "promhttp.Handler().ServeHTTP") {
+		t.Fatalf("mongo metrics source must expose a Prometheus handler:\n%s", source)
+	}
+}
+
+func TestMetricsTemplateSupportsInFlightOnly(t *testing.T) {
+	source, err := BuildMetricsSource(FeatureOptions{
+		Build: BuildFeatures{Backend: "mongo"},
+		Metrics: MetricsFeatures{
+			Enabled:          true,
+			Namespace:        "myapp",
+			InFlightRequests: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"requests_in_flight",
+		"promhttp.Handler().ServeHTTP",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("in-flight-only metrics source missing %q:\n%s", expected, source)
+		}
+	}
+	for _, unexpected := range []string{
+		`"time"`,
+		`"strconv"`,
+		`"github.com/gorilla/mux"`,
+		"labelValues",
+		"routePattern",
+		"WithLabelValues",
+	} {
+		if strings.Contains(source, unexpected) {
+			t.Fatalf("in-flight-only metrics source must not contain %q:\n%s", unexpected, source)
+		}
+	}
+}

@@ -19,6 +19,22 @@ func TestValidateConfigRequiresGracefulShutdown(t *testing.T) {
 	}
 }
 
+func TestValidateConfigRequiresAtLeastOneMetricCollector(t *testing.T) {
+	bundle := minimalBundle()
+	bundle.Rest.Observability.Metrics.Enabled = config.Enabled(true)
+	bundle.Rest.Observability.Metrics.Provider = "prometheus"
+	bundle.Rest.Observability.Metrics.Path = "/metrics"
+	bundle.Rest.Observability.Metrics.Collect.HTTPRequests = false
+	bundle.Rest.Observability.Metrics.Collect.RequestDuration = false
+	bundle.Rest.Observability.Metrics.Collect.ResponseSize = false
+	bundle.Rest.Observability.Metrics.Collect.InFlightRequests = false
+
+	err := validateConfig(bundle)
+	if err == nil || !strings.Contains(err.Error(), "observability.metrics.collect") {
+		t.Fatalf("expected metrics collector validation error, got %v", err)
+	}
+}
+
 func TestResolveSQLCPathUsesConfigDir(t *testing.T) {
 	got := resolveSQLCPath("/project/rest_config", "../rest_sqlc/rest_sqlc.yaml")
 	want := "/project/rest_sqlc/rest_sqlc.yaml"

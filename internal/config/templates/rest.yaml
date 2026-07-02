@@ -167,14 +167,14 @@ testing:
 # ------------------------------------------------------------------------------
 observability:
   metrics:
-    enabled: false                    # Generate Prometheus-style in-memory metrics endpoint.
+    enabled: false                    # Generate a Prometheus metrics endpoint using the official Go client.
     provider: prometheus             # Currently supported: prometheus.
     path: /metrics                    # Metrics HTTP route.
     namespace: myapp                  # Metric name prefix.
     collect:
-      http_requests: true             # Count requests by configured labels.
-      request_duration: true          # Track request duration summaries.
-      response_size: true             # Track response byte counts.
+      http_requests: true             # CounterVec: total requests by configured labels.
+      request_duration: true          # HistogramVec: request duration seconds.
+      response_size: true             # HistogramVec: response size bytes.
       in_flight_requests: true        # Track current in-flight requests.
     labels: [method, route, status]   # Allowed values: method, route, status.
 

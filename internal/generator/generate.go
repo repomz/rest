@@ -453,6 +453,14 @@ func BuildLoggingSource(features FeatureOptions) (string, error) {
 	return string(out), nil
 }
 
+func BuildMetricsSource(features FeatureOptions) (string, error) {
+	out, err := renderTemplateBytes("internal/app/metrics/metrics.go", metricsTemplate, renderData{Features: features})
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 func removeGeneratedEnv(path string) error {
 	content, err := os.ReadFile(path)
 	if os.IsNotExist(err) {

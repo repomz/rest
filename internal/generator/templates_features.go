@@ -3,112 +3,193 @@ package generator
 const metricsTemplate = `package metrics
 
 import (
+{{- if ne .Features.Build.Backend "mongo" }}
 	"database/sql"
-	"fmt"
+{{- end }}
 	"net/http"
+{{- if and (or .Features.Metrics.HTTPRequests .Features.Metrics.RequestDuration .Features.Metrics.ResponseSize) (contains .Features.Metrics.Labels "status") }}
 	"strconv"
-	"strings"
-	"sync"
-	"sync/atomic"
+{{- end }}
+{{- if .Features.Metrics.RequestDuration }}
 	"time"
+{{- end }}
 
+{{- if and (or .Features.Metrics.HTTPRequests .Features.Metrics.RequestDuration .Features.Metrics.ResponseSize) (contains .Features.Metrics.Labels "route") }}
 	"github.com/gorilla/mux"
+{{- end }}
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const namespace = {{ printf "%q" (defaultString .Features.Metrics.Namespace "app") }}
 
-type values struct {
-	count uint64
-	duration float64
-	responseBytes uint64
+{{- if or .Features.Metrics.HTTPRequests .Features.Metrics.RequestDuration .Features.Metrics.ResponseSize }}
+var labelNames = []string{
+{{- if contains .Features.Metrics.Labels "method" }}
+	"method",
+{{- end }}
+{{- if contains .Features.Metrics.Labels "route" }}
+	"route",
+{{- end }}
+{{- if contains .Features.Metrics.Labels "status" }}
+	"status",
+{{- end }}
 }
+{{- end }}
 
 var (
-	mu sync.Mutex
-	requests = map[string]*values{}
-	inFlight int64
+{{- if .Features.Metrics.HTTPRequests }}
+	requestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Subsystem: "http",
+		Name: "requests_total",
+		Help: "Total number of HTTP requests processed by the application.",
+	}, labelNames)
+{{- end }}
+{{- if .Features.Metrics.RequestDuration }}
+	requestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: namespace,
+		Subsystem: "http",
+		Name: "request_duration_seconds",
+		Help: "HTTP request duration in seconds.",
+		Buckets: prometheus.DefBuckets,
+	}, labelNames)
+{{- end }}
+{{- if .Features.Metrics.ResponseSize }}
+	responseSize = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: namespace,
+		Subsystem: "http",
+		Name: "response_size_bytes",
+		Help: "HTTP response size in bytes.",
+		Buckets: []float64{100, 500, 1000, 2500, 5000, 10000, 50000, 100000, 500000, 1000000},
+	}, labelNames)
+{{- end }}
+{{- if .Features.Metrics.InFlightRequests }}
+	inFlight = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Subsystem: "http",
+		Name: "requests_in_flight",
+		Help: "Current number of in-flight HTTP requests.",
+	})
+{{- end }}
+{{- if ne .Features.Build.Backend "mongo" }}
+	dbStatsProvider func() sql.DBStats
+	dbOpenConnections = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Subsystem: "db",
+		Name: "open_connections",
+		Help: "Number of established database connections.",
+	})
+	dbConnectionsInUse = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Subsystem: "db",
+		Name: "connections_in_use",
+		Help: "Number of database connections currently in use.",
+	})
+	dbIdleConnections = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Subsystem: "db",
+		Name: "idle_connections",
+		Help: "Number of idle database connections.",
+	})
+{{- end }}
 )
 
-type dbStats struct {
-	OpenConnections int
-	InUse int
-	Idle int
+func init() {
+{{- if .Features.Metrics.HTTPRequests }}
+	prometheus.MustRegister(requestsTotal)
+{{- end }}
+{{- if .Features.Metrics.RequestDuration }}
+	prometheus.MustRegister(requestDuration)
+{{- end }}
+{{- if .Features.Metrics.ResponseSize }}
+	prometheus.MustRegister(responseSize)
+{{- end }}
+{{- if .Features.Metrics.InFlightRequests }}
+	prometheus.MustRegister(inFlight)
+{{- end }}
+{{- if ne .Features.Build.Backend "mongo" }}
+	prometheus.MustRegister(dbOpenConnections, dbConnectionsInUse, dbIdleConnections)
+{{- end }}
 }
 
-var readDBStats func() dbStats
-
+{{- if ne .Features.Build.Backend "mongo" }}
 func SetDBStatsProvider(provider func() sql.DBStats) {
-	readDBStats = func() dbStats {
-		stats := provider()
-		return dbStats{OpenConnections: stats.OpenConnections, InUse: stats.InUse, Idle: stats.Idle}
-	}
+	dbStatsProvider = provider
 }
+{{- end }}
 
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt64(&inFlight, 1)
-		defer atomic.AddInt64(&inFlight, -1)
+		{{- if .Features.Metrics.InFlightRequests }}
+		inFlight.Inc()
+		defer inFlight.Dec()
+		{{- end }}
+		{{- if .Features.Metrics.RequestDuration }}
 		started := time.Now()
+		{{- end }}
 		recorder := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(recorder, r)
-		route := r.URL.Path
-		if current := mux.CurrentRoute(r); current != nil {
-			if template, err := current.GetPathTemplate(); err == nil {
-				route = template
-			}
-		}
-		key := strings.Join([]string{r.Method, route, strconv.Itoa(recorder.status)}, "\x00")
-		mu.Lock()
-		value := requests[key]
-		if value == nil {
-			value = &values{}
-			requests[key] = value
-		}
-		value.count++
-		value.duration += time.Since(started).Seconds()
-		value.responseBytes += uint64(recorder.bytes)
-		mu.Unlock()
+		{{- if or .Features.Metrics.HTTPRequests .Features.Metrics.RequestDuration .Features.Metrics.ResponseSize }}
+		labels := labelValues(r, recorder.status)
+		{{- end }}
+		{{- if .Features.Metrics.HTTPRequests }}
+		requestsTotal.WithLabelValues(labels...).Inc()
+		{{- end }}
+		{{- if .Features.Metrics.RequestDuration }}
+		requestDuration.WithLabelValues(labels...).Observe(time.Since(started).Seconds())
+		{{- end }}
+		{{- if .Features.Metrics.ResponseSize }}
+		responseSize.WithLabelValues(labels...).Observe(float64(recorder.bytes))
+		{{- end }}
 	})
 }
 
-func Handler(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	{{- if .Features.Metrics.InFlightRequests }}
-	fmt.Fprintf(w, "%s_http_requests_in_flight %d\n", namespace, atomic.LoadInt64(&inFlight))
+func Handler(w http.ResponseWriter, r *http.Request) {
+	{{- if ne .Features.Build.Backend "mongo" }}
+	updateDBStats()
 	{{- end }}
-	mu.Lock()
-	defer mu.Unlock()
-	for key, value := range requests {
-		parts := strings.Split(key, "\x00")
-		labels := make([]string, 0, 3)
-		{{- if contains .Features.Metrics.Labels "method" }}
-		labels = append(labels, fmt.Sprintf("method=%q", parts[0]))
-		{{- end }}
-		{{- if contains .Features.Metrics.Labels "route" }}
-		labels = append(labels, fmt.Sprintf("route=%q", parts[1]))
-		{{- end }}
-		{{- if contains .Features.Metrics.Labels "status" }}
-		labels = append(labels, fmt.Sprintf("status=%q", parts[2]))
-		{{- end }}
-		labelSet := strings.Join(labels, ",")
-		{{- if .Features.Metrics.HTTPRequests }}
-		fmt.Fprintf(w, "%s_http_requests_total{%s} %d\n", namespace, labelSet, value.count)
-		{{- end }}
-		{{- if .Features.Metrics.RequestDuration }}
-		fmt.Fprintf(w, "%s_http_request_duration_seconds_sum{%s} %f\n", namespace, labelSet, value.duration)
-		fmt.Fprintf(w, "%s_http_request_duration_seconds_count{%s} %d\n", namespace, labelSet, value.count)
-		{{- end }}
-		{{- if .Features.Metrics.ResponseSize }}
-		fmt.Fprintf(w, "%s_http_response_size_bytes_sum{%s} %d\n", namespace, labelSet, value.responseBytes)
-		{{- end }}
-	}
-	if readDBStats != nil {
-		stats := readDBStats()
-		fmt.Fprintf(w, "%s_db_open_connections %d\n", namespace, stats.OpenConnections)
-		fmt.Fprintf(w, "%s_db_connections_in_use %d\n", namespace, stats.InUse)
-		fmt.Fprintf(w, "%s_db_idle_connections %d\n", namespace, stats.Idle)
-	}
+	promhttp.Handler().ServeHTTP(w, r)
 }
+
+{{- if ne .Features.Build.Backend "mongo" }}
+func updateDBStats() {
+	if dbStatsProvider == nil {
+		return
+	}
+	stats := dbStatsProvider()
+	dbOpenConnections.Set(float64(stats.OpenConnections))
+	dbConnectionsInUse.Set(float64(stats.InUse))
+	dbIdleConnections.Set(float64(stats.Idle))
+}
+{{- end }}
+
+{{- if or .Features.Metrics.HTTPRequests .Features.Metrics.RequestDuration .Features.Metrics.ResponseSize }}
+func labelValues(r *http.Request, status int) []string {
+	values := make([]string, 0, len(labelNames))
+{{- if contains .Features.Metrics.Labels "method" }}
+	values = append(values, r.Method)
+{{- end }}
+{{- if contains .Features.Metrics.Labels "route" }}
+	values = append(values, routePattern(r))
+{{- end }}
+{{- if contains .Features.Metrics.Labels "status" }}
+	values = append(values, strconv.Itoa(status))
+{{- end }}
+	return values
+}
+
+{{- if contains .Features.Metrics.Labels "route" }}
+func routePattern(r *http.Request) string {
+	if current := mux.CurrentRoute(r); current != nil {
+		if template, err := current.GetPathTemplate(); err == nil {
+			return template
+		}
+	}
+	return r.URL.Path
+}
+{{- end }}
+{{- end }}
 
 type responseRecorder struct {
 	http.ResponseWriter
