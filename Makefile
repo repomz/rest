@@ -38,10 +38,6 @@ check:
 ci-check: check race vuln generated-examples golden
 
 setup: hooks
-	@command -v git-cliff >/dev/null 2>&1 || { \
-		echo "git-cliff is missing. Install it with: brew install git-cliff"; \
-		exit 1; \
-	}
 	@echo "Development tools are configured."
 
 hooks:

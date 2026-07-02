@@ -114,6 +114,9 @@ func validateReferencedYAMLInputs(ctx Context) error {
 }
 
 func validateConfig(bundle config.Bundle) error {
+	if bundle.Rest.SQL.Bool() && bundle.Rest.Mongo.Bool() {
+		return fmt.Errorf("sql and mongo cannot both be enabled; choose one backend in rest.yaml")
+	}
 	if language := strings.ToLower(bundle.Rest.Language); language != "" && language != "golang" && language != "go" {
 		return fmt.Errorf("unsupported language %q", bundle.Rest.Language)
 	}

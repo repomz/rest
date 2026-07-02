@@ -152,7 +152,7 @@ func (d *doctorRunner) checkBasicConfig() {
 		}
 	}
 	if rest.SQL.Bool() && rest.Mongo.Bool() {
-		d.warn("both sql and mongo are enabled; SQL generator takes precedence", "Disable one backend unless this is intentional.")
+		d.err("both sql and mongo are enabled", "Generated runtime currently supports one backend; disable sql or mongo in rest_config/rest.yaml.")
 	}
 	if !rest.SQL.Bool() && !rest.Mongo.Bool() {
 		d.err("no backend is enabled", "Set sql: enable or mongo: enable in rest_config/rest.yaml.")

@@ -19,6 +19,17 @@ func TestValidateConfigRequiresGracefulShutdown(t *testing.T) {
 	}
 }
 
+func TestValidateConfigRejectsSQLAndMongoTogether(t *testing.T) {
+	bundle := minimalBundle()
+	bundle.Rest.SQL = config.Enabled(true)
+	bundle.Rest.Mongo = config.Enabled(true)
+
+	err := validateConfig(bundle)
+	if err == nil || !strings.Contains(err.Error(), "sql and mongo cannot both be enabled") {
+		t.Fatalf("expected mutually exclusive backend validation error, got %v", err)
+	}
+}
+
 func TestValidateConfigRequiresAtLeastOneMetricCollector(t *testing.T) {
 	bundle := minimalBundle()
 	bundle.Rest.Observability.Metrics.Enabled = config.Enabled(true)
