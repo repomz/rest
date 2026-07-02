@@ -90,16 +90,14 @@ func TestParseChangelogOptions(t *testing.T) {
 func TestPrintUpdateResult(t *testing.T) {
 	var output bytes.Buffer
 	printUpdateResult(&output, selfupdate.Result{
-		PreviousVersion:   "v0.1.0",
-		Version:           "v0.2.0",
-		ReleaseNotes:      "Features:\n\n - abc1234 [update] Add release notes.",
-		Checksum:          strings.Repeat("a", 64),
-		SignatureVerified: true,
+		PreviousVersion: "v0.1.0",
+		Version:         "v0.2.0",
+		ReleaseNotes:    "Features:\n\n - abc1234 [update] Add release notes.",
+		Checksum:        strings.Repeat("a", 64),
 	})
 	for _, want := range []string{
 		"Updating rest\n",
 		"v0.1.0 -> v0.2.0\n",
-		"Verified cosign signature for checksums.txt\n",
 		"Verified SHA-256: " + strings.Repeat("a", 64) + "\n",
 		"Features:\n\n - abc1234 [update] Add release notes.\n",
 		"You can see the changelog with `rest changelog`.\n",

@@ -69,13 +69,8 @@ func printUpdateCheckResult(w io.Writer, result selfupdate.Result) {
 func printUpdateResult(w io.Writer, result selfupdate.Result) {
 	fmt.Fprintln(w, "Updating rest")
 	fmt.Fprintf(w, "%s -> %s\n\n", result.PreviousVersion, result.Version)
-	if result.SignatureVerified {
-		fmt.Fprintln(w, "Verified cosign signature for checksums.txt")
-	}
 	if result.Checksum != "" {
 		fmt.Fprintf(w, "Verified SHA-256: %s\n", result.Checksum)
-	}
-	if result.SignatureVerified || result.Checksum != "" {
 		fmt.Fprintln(w)
 	}
 	printReleaseNotes(w, result)

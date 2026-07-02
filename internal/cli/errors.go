@@ -71,11 +71,8 @@ func errorHints(message string) []string {
 	if strings.Contains(lower, "postgres") || strings.Contains(lower, "db_dsn") || strings.Contains(lower, "pq:") {
 		add("Set `DB_DSN` to a valid PostgreSQL connection string before running the generated app.")
 	}
-	if strings.Contains(lower, "cosign") {
-		add("Install cosign before `rest update`; strict release verification depends on it.")
-	}
-	if strings.Contains(lower, "checksum") || strings.Contains(lower, "signature verification") {
-		add("Do not replace the binary when release checksum/signature verification fails.")
+	if strings.Contains(lower, "checksum") {
+		add("Do not replace the binary when release checksum verification fails.")
 	}
 	return hints
 }

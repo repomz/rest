@@ -125,7 +125,6 @@ func (d *doctorRunner) checkProject() {
 	d.checkDocker()
 	d.checkGeneratedProject()
 	d.checkCI()
-	d.checkReleaseTrust()
 }
 
 func (d *doctorRunner) checkBasicConfig() {
@@ -548,14 +547,6 @@ func (d *doctorRunner) checkGeneratedGuide(name string, enabled bool, configured
 		return
 	}
 	d.warn(name+" is enabled but not generated yet", "Run `rest gen`.")
-}
-
-func (d *doctorRunner) checkReleaseTrust() {
-	if _, err := exec.LookPath("cosign"); err != nil {
-		d.warn("cosign is not available for strict release verification", "Install cosign before using `rest update` in strict trust-sensitive environments.")
-		return
-	}
-	d.ok("cosign is available for release verification")
 }
 
 func (d *doctorRunner) generatedExists(path string) bool {

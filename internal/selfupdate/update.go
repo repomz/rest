@@ -12,24 +12,15 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"time"
 )
 
-const (
-	DefaultRepoOwner       = "repomz"
-	DefaultRepoName        = "rest"
-	defaultOIDCIssuer      = "https://token.actions.githubusercontent.com"
-	checksumsAssetName     = "checksums.txt"
-	checksumsSignatureName = "checksums.txt.sig"
-	checksumsCertName      = "checksums.txt.pem"
-)
-
-var runCosignVerifyBlob = defaultRunCosignVerifyBlob
+const DefaultRepoOwner = "repomz"
+const DefaultRepoName = "rest"
+const checksumsAssetName = "checksums.txt"
 
 type Options struct {
 	CurrentVersion string
@@ -43,16 +34,15 @@ type Options struct {
 }
 
 type Result struct {
-	PreviousVersion   string
-	Version           string
-	ReleaseNotes      string
-	ReleaseURL        string
-	AssetName         string
-	ExecutablePath    string
-	Available         bool
-	Updated           bool
-	Checksum          string
-	SignatureVerified bool
+	PreviousVersion string
+	Version         string
+	ReleaseNotes    string
+	ReleaseURL      string
+	AssetName       string
+	ExecutablePath  string
+	Available       bool
+	Updated         bool
+	Checksum        string
 }
 
 type release struct {
@@ -95,14 +85,6 @@ func Update(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	signature, err := selectNamedAsset(rel, checksumsSignatureName)
-	if err != nil {
-		return Result{}, err
-	}
-	certificate, err := selectNamedAsset(rel, checksumsCertName)
-	if err != nil {
-		return Result{}, err
-	}
 	tmpDir, err := os.MkdirTemp("", "rest-update-*")
 	if err != nil {
 		return Result{}, err
@@ -114,17 +96,6 @@ func Update(ctx context.Context, opts Options) (Result, error) {
 	}
 	checksumsPath := filepath.Join(tmpDir, checksums.Name)
 	if err := download(ctx, opts.Client, checksums.URL, checksumsPath); err != nil {
-		return Result{}, err
-	}
-	signaturePath := filepath.Join(tmpDir, signature.Name)
-	if err := download(ctx, opts.Client, signature.URL, signaturePath); err != nil {
-		return Result{}, err
-	}
-	certificatePath := filepath.Join(tmpDir, certificate.Name)
-	if err := download(ctx, opts.Client, certificate.URL, certificatePath); err != nil {
-		return Result{}, err
-	}
-	if err := verifyChecksumsSignature(ctx, checksumsPath, signaturePath, certificatePath, opts); err != nil {
 		return Result{}, err
 	}
 	checksum, err := verifyArchiveChecksum(archivePath, checksumsPath)
@@ -139,16 +110,15 @@ func Update(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, err
 	}
 	return Result{
-		PreviousVersion:   opts.CurrentVersion,
-		Version:           rel.TagName,
-		ReleaseNotes:      strings.TrimSpace(rel.Body),
-		ReleaseURL:        rel.HTMLURL,
-		AssetName:         selected.Name,
-		ExecutablePath:    opts.ExecutablePath,
-		Available:         true,
-		Updated:           true,
-		Checksum:          checksum,
-		SignatureVerified: true,
+		PreviousVersion: opts.CurrentVersion,
+		Version:         rel.TagName,
+		ReleaseNotes:    strings.TrimSpace(rel.Body),
+		ReleaseURL:      rel.HTMLURL,
+		AssetName:       selected.Name,
+		ExecutablePath:  opts.ExecutablePath,
+		Available:       true,
+		Updated:         true,
+		Checksum:        checksum,
 	}, nil
 }
 
@@ -291,43 +261,6 @@ func download(ctx context.Context, client *http.Client, url, target string) erro
 	defer file.Close()
 	_, err = io.Copy(file, resp.Body)
 	return err
-}
-
-func verifyChecksumsSignature(ctx context.Context, checksumsPath, signaturePath, certificatePath string, opts Options) error {
-	identityRegexp := releaseCertificateIdentityRegexp(opts.RepoOwner, opts.RepoName)
-	if err := runCosignVerifyBlob(ctx, checksumsPath, signaturePath, certificatePath, identityRegexp, defaultOIDCIssuer); err != nil {
-		return fmt.Errorf("cosign verification failed for checksums.txt: %w", err)
-	}
-	return nil
-}
-
-func defaultRunCosignVerifyBlob(ctx context.Context, checksumsPath, signaturePath, certificatePath, identityRegexp, oidcIssuer string) error {
-	cosignPath, err := exec.LookPath("cosign")
-	if err != nil {
-		return fmt.Errorf("cosign is required for strict release verification; install cosign and retry")
-	}
-	cmd := exec.CommandContext(ctx, cosignPath,
-		"verify-blob",
-		"--certificate", certificatePath,
-		"--signature", signaturePath,
-		"--certificate-identity-regexp", identityRegexp,
-		"--certificate-oidc-issuer", oidcIssuer,
-		checksumsPath,
-	)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		message := strings.TrimSpace(string(output))
-		if message == "" {
-			message = err.Error()
-		}
-		return fmt.Errorf("%s", message)
-	}
-	return nil
-}
-
-func releaseCertificateIdentityRegexp(owner, repo string) string {
-	identity := fmt.Sprintf("https://github.com/%s/%s/.github/workflows/release.yml@refs/tags/v", owner, repo)
-	return "^" + regexp.QuoteMeta(identity) + ".*$"
 }
 
 func verifyArchiveChecksum(archivePath, checksumsPath string) (string, error) {

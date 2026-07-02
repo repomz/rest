@@ -63,14 +63,6 @@ func TestSelectChecksumsAssetRejectsMissingChecksums(t *testing.T) {
 	}
 }
 
-func TestReleaseCertificateIdentityRegexp(t *testing.T) {
-	got := releaseCertificateIdentityRegexp("repomz", "rest")
-	want := `^https://github\.com/repomz/rest/\.github/workflows/release\.yml@refs/tags/v.*$`
-	if got != want {
-		t.Fatalf("identity regexp = %q, want %q", got, want)
-	}
-}
-
 func TestVerifyArchiveChecksum(t *testing.T) {
 	dir := t.TempDir()
 	archivePath := filepath.Join(dir, "rest_v0.2.0_linux_amd64.tar.gz")
@@ -216,23 +208,6 @@ func TestUpdateVerifiesChecksumBeforeInstall(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("tar.gz update fixture is for Unix-like platforms")
 	}
-	var verifiedSignature bool
-	withCosignVerifier(t, func(ctx context.Context, checksumsPath, signaturePath, certificatePath, identityRegexp, oidcIssuer string) error {
-		verifiedSignature = true
-		if filepath.Base(checksumsPath) != "checksums.txt" {
-			t.Fatalf("checksums path = %s", checksumsPath)
-		}
-		if filepath.Base(signaturePath) != "checksums.txt.sig" {
-			t.Fatalf("signature path = %s", signaturePath)
-		}
-		if filepath.Base(certificatePath) != "checksums.txt.pem" {
-			t.Fatalf("certificate path = %s", certificatePath)
-		}
-		if oidcIssuer != defaultOIDCIssuer {
-			t.Fatalf("oidc issuer = %q", oidcIssuer)
-		}
-		return nil
-	})
 	archiveName := "rest_v0.2.0_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
 	archiveBytes, err := tarGzBytes("rest", "new binary")
 	if err != nil {
@@ -250,19 +225,13 @@ func TestUpdateVerifiesChecksumBeforeInstall(t *testing.T) {
 					"html_url": "https://github.com/repomz/rest/releases/tag/v0.2.0",
 					"assets": [
 						{"name": %q, "browser_download_url": "https://downloads.test/%s"},
-						{"name": "checksums.txt", "browser_download_url": "https://downloads.test/checksums.txt"},
-						{"name": "checksums.txt.sig", "browser_download_url": "https://downloads.test/checksums.txt.sig"},
-						{"name": "checksums.txt.pem", "browser_download_url": "https://downloads.test/checksums.txt.pem"}
+						{"name": "checksums.txt", "browser_download_url": "https://downloads.test/checksums.txt"}
 					]
 				}`, archiveName, archiveName)), nil
 			case "https://downloads.test/" + archiveName:
 				return bytesResponse(archiveBytes), nil
 			case "https://downloads.test/checksums.txt":
 				return bytesResponse([]byte(checksums)), nil
-			case "https://downloads.test/checksums.txt.sig":
-				return bytesResponse([]byte("signature")), nil
-			case "https://downloads.test/checksums.txt.pem":
-				return bytesResponse([]byte("certificate")), nil
 			default:
 				t.Fatalf("unexpected URL: %s", req.URL.String())
 				return nil, nil
@@ -282,11 +251,8 @@ func TestUpdateVerifiesChecksumBeforeInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Updated || !result.SignatureVerified || result.Checksum != fmt.Sprintf("%x", sum) {
+	if !result.Updated || result.Checksum != fmt.Sprintf("%x", sum) {
 		t.Fatalf("unexpected update result: %+v", result)
-	}
-	if !verifiedSignature {
-		t.Fatal("expected cosign verification to run")
 	}
 	content, err := os.ReadFile(target)
 	if err != nil {
@@ -294,29 +260,6 @@ func TestUpdateVerifiesChecksumBeforeInstall(t *testing.T) {
 	}
 	if string(content) != "new binary" {
 		t.Fatalf("installed content = %q", content)
-	}
-}
-
-func TestUpdateRejectsMissingSignatureAssets(t *testing.T) {
-	archiveName := "rest_v0.2.0_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
-	client := &http.Client{
-		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-			return jsonResponse(fmt.Sprintf(`{
-				"tag_name": "v0.2.0",
-				"assets": [
-					{"name": %q, "browser_download_url": "https://downloads.test/%s"},
-					{"name": "checksums.txt", "browser_download_url": "https://downloads.test/checksums.txt"}
-				]
-			}`, archiveName, archiveName)), nil
-		}),
-	}
-	_, err := Update(context.Background(), Options{
-		CurrentVersion: "v0.1.0",
-		Client:         client,
-		ExecutablePath: filepath.Join(t.TempDir(), "rest"),
-	})
-	if err == nil || !strings.Contains(err.Error(), "checksums.txt.sig") {
-		t.Fatalf("expected missing signature asset error, got %v", err)
 	}
 }
 
@@ -340,15 +283,6 @@ func bytesResponse(body []byte) *http.Response {
 		Body:       io.NopCloser(bytes.NewReader(body)),
 		Header:     make(http.Header),
 	}
-}
-
-func withCosignVerifier(t *testing.T, verifier func(context.Context, string, string, string, string, string) error) {
-	t.Helper()
-	previous := runCosignVerifyBlob
-	runCosignVerifyBlob = verifier
-	t.Cleanup(func() {
-		runCosignVerifyBlob = previous
-	})
 }
 
 func writeTarGz(path, name, content string) error {
