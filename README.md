@@ -1,10 +1,8 @@
 # REST
 
 <p align="center">
-  <img src="assets/rest-logo.svg" alt="rest — Write queries. Get an application. Add business logic." width="620">
+  <img src="assets/rest-logo.svg" alt="rest — Give yourself a little rest. Write queries. Get an application. Add business logic." width="680">
 </p>
-
-<p align="center"><strong>Write queries. Get an application. Add business logic.</strong></p>
 
 [![CI](https://github.com/repomz/rest/actions/workflows/ci.yml/badge.svg)](https://github.com/repomz/rest/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev/)

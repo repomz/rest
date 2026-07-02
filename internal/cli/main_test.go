@@ -154,7 +154,7 @@ func TestPrintWelcomeBanner(t *testing.T) {
 	var output bytes.Buffer
 	printWelcomeBanner(&output, false)
 	text := output.String()
-	for _, want := range []string{"rest", "Write queries. Get an application. Add business logic."} {
+	for _, want := range []string{"Give yourself a little", "____  _____ ____ _____", "Write queries.", "Get an application.", "Add business logic."} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("welcome banner does not contain %q:\n%s", want, text)
 		}
