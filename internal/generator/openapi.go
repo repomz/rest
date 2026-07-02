@@ -169,6 +169,9 @@ func collectOpenAPIOperations(tables []table, features FeatureOptions) []openAPI
 	if features.HTTP.Health {
 		result = append(result, openAPIOperation{Method: "GET", Path: applicationPath(features.HTTP.BasePath, features.HTTP.HealthPath), Name: "GetHealth", Tag: "system", Response: openAPISchema{Ref: "HealthResponse"}, Description: "Application health"})
 	}
+	if features.HTTP.Readiness {
+		result = append(result, openAPIOperation{Method: "GET", Path: applicationPath(features.HTTP.BasePath, features.HTTP.ReadinessPath), Name: "GetReadiness", Tag: "system", Response: openAPISchema{Ref: "HealthResponse"}, ServerError: true, Description: "Application readiness"})
+	}
 	if features.Metrics.Enabled {
 		result = append(result, openAPIOperation{Method: "GET", Path: applicationPath(features.HTTP.BasePath, features.Metrics.Path), Name: "GetMetrics", Tag: "system", Response: openAPISchema{Type: "string"}, ContentType: "text/plain", Description: "Prometheus metrics"})
 	}
@@ -330,7 +333,7 @@ func writeOpenAPIComponents(b *strings.Builder, tables []table, features Feature
 		}
 		writeOpenAPIObjectSchema(b, "TokenResponse", props)
 	}
-	if features.HTTP.Health {
+	if features.HTTP.Health || features.HTTP.Readiness {
 		writeOpenAPIObjectSchema(b, "HealthResponse", []openAPIProperty{{Name: "status", GoType: "string", Required: true}})
 	}
 	for _, tbl := range tables {

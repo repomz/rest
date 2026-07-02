@@ -142,6 +142,7 @@ func (d *doctorRunner) checkBasicConfig() {
 	for name, path := range map[string]string{
 		"http.base_path":             rest.HTTP.BasePath,
 		"http.health.path":           rest.HTTP.Health.Path,
+		"http.readiness.path":        rest.HTTP.Readiness.Path,
 		"openapi.spec_path":          rest.OpenAPI.SpecPath,
 		"openapi.ui_path":            rest.OpenAPI.UIPath,
 		"observability.metrics.path": rest.Observability.Metrics.Path,

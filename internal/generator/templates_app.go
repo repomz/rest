@@ -29,7 +29,7 @@ import (
 	"{{ .Module }}/internal/app/repository/pgrepo"
 	"{{ .Module }}/internal/app/services"
 	"{{ .Module }}/internal/app/transport/httpserver"
-	{{- if .Features.HTTP.Health }}
+	{{- if or .Features.HTTP.Health .Features.HTTP.Readiness }}
 	"{{ .Module }}/internal/app/common/server"
 	{{- end }}
 	{{- if or .Features.HTTP.CORS .Features.HTTP.Recovery .Features.HTTP.RequestID .Features.HTTP.SecurityHeaders .Features.HTTP.RateLimit (gt .Features.HTTP.MaxBodyBytes 0) }}
@@ -132,6 +132,9 @@ func run() error {
 	{{- end }}
 	{{- if .Features.HTTP.Health }}
 	apiRouter.HandleFunc({{ printf "%q" (defaultString .Features.HTTP.HealthPath "/health") }}, {{ authHandler .Features.Auth .Features.HTTP.BasePath "GET" (defaultString .Features.HTTP.HealthPath "/health") "func(w http.ResponseWriter, _ *http.Request) { server.RespondOK(map[string]string{\"status\": \"ok\"}, w, nil) }" }}).Methods(http.MethodGet)
+	{{- end }}
+	{{- if .Features.HTTP.Readiness }}
+	apiRouter.HandleFunc({{ printf "%q" (defaultString .Features.HTTP.ReadinessPath "/ready") }}, {{ authHandler .Features.Auth .Features.HTTP.BasePath "GET" (defaultString .Features.HTTP.ReadinessPath "/ready") "func(w http.ResponseWriter, r *http.Request) { ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second); defer cancel(); if err := dbase.PingContext(ctx); err != nil { server.InternalError(\"readiness-check-failed\", err, w, r); return }; server.RespondOK(map[string]string{\"status\": \"ready\"}, w, r) }" }}).Methods(http.MethodGet)
 	{{- end }}
 	{{- if .Features.Metrics.Enabled }}
 	metrics.SetDBStatsProvider(dbase.Stats)

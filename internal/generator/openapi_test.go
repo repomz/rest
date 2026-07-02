@@ -37,7 +37,7 @@ func TestBuildOpenAPISpecDescribesGeneratedApplication(t *testing.T) {
 			BodyParams: []endpointParam{{Name: "link", JSONName: "link", Source: "body", GoType: "string", Required: true}},
 		}},
 	}}
-	features := FeatureOptions{Build: BuildFeatures{HTTPPort: 9090}, OpenAPI: OpenAPIFeatures{Enabled: true, WithUI: true}}
+	features := FeatureOptions{Build: BuildFeatures{HTTPPort: 9090}, HTTP: HTTPFeatures{Readiness: true, ReadinessPath: "/ready"}, OpenAPI: OpenAPIFeatures{Enabled: true, WithUI: true}}
 
 	spec := buildOpenAPISpec("example.test/app", tables, features)
 	if strings.Count(spec, "  /studies:\n") != 1 {
@@ -49,7 +49,7 @@ func TestBuildOpenAPISpecDescribesGeneratedApplication(t *testing.T) {
 	}
 
 	paths := mapValue(t, document, "paths")
-	for _, path := range []string{"/", "/swagger/openapi.yaml", "/swagger/index.html", "/studies", "/studies/{id}", "/studies/search", "/studies/{id}/link"} {
+	for _, path := range []string{"/", "/ready", "/swagger/openapi.yaml", "/swagger/index.html", "/studies", "/studies/{id}", "/studies/search", "/studies/{id}/link"} {
 		if _, ok := paths[path]; !ok {
 			t.Fatalf("missing generated path %s", path)
 		}

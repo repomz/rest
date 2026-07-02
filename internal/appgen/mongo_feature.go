@@ -106,11 +106,13 @@ func (MongoFeature) Generate(ctx Context) error {
 func mongoFeatureOptions(ctx Context, models []generator.MongoModel) generator.FeatureOptions {
 	return generator.FeatureOptions{
 		HTTP: generator.HTTPFeatures{
-			BasePath:   ctx.Config.Rest.HTTP.BasePath,
-			Host:       ctx.Config.Rest.HTTP.Host,
-			Port:       ctx.Config.Rest.HTTP.Port,
-			Health:     ctx.Config.Rest.HTTP.Health.Enabled.Bool(),
-			HealthPath: ctx.Config.Rest.HTTP.Health.Path,
+			BasePath:      ctx.Config.Rest.HTTP.BasePath,
+			Host:          ctx.Config.Rest.HTTP.Host,
+			Port:          ctx.Config.Rest.HTTP.Port,
+			Health:        ctx.Config.Rest.HTTP.Health.Enabled.Bool(),
+			HealthPath:    ctx.Config.Rest.HTTP.Health.Path,
+			Readiness:     ctx.Config.Rest.HTTP.Readiness.Enabled.Bool(),
+			ReadinessPath: ctx.Config.Rest.HTTP.Readiness.Path,
 		},
 		Auth: authFeatures(ctx.Config),
 		OpenAPI: generator.OpenAPIFeatures{
@@ -200,6 +202,7 @@ func mongoMainSource(ctx Context, models []generator.MongoModel) string {
 	if ctx.Config.Rest.HTTP.Middleware.SecurityHeaders.Enabled.Bool() {
 		handlerSetup += "\n\thandler = middleware.SecurityHeaders(handler)"
 	}
+	readinessPath := routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.HTTP.Readiness.Path)
 	return fmt.Sprintf(`package main
 
 import (
@@ -207,6 +210,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -232,8 +237,12 @@ func run() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(env("MONGO_URI", "mongodb://localhost:27017")))
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(env(%q, "mongodb://localhost:27017")))
 	if err != nil {
+		return err
+	}
+	if err := client.Ping(ctx, nil); err != nil {
+		_ = client.Disconnect(ctx)
 		return err
 	}
 	defer func() {
@@ -260,13 +269,34 @@ func run() error {
 	}
 	httpServer.RegisterRoutes(router)
 	%s
+	%s
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", %q),
 		Handler:           handler,
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: mustDuration(%q),
+		ReadTimeout:       mustDuration(%q),
+		WriteTimeout:      mustDuration(%q),
+		IdleTimeout:       mustDuration(%q),
 	}
+	stopped := make(chan struct{})
+	go func() {
+		sigint := make(chan os.Signal, 1)
+		signal.Notify(sigint, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+		<-sigint
+		ctx, cancel := context.WithTimeout(context.Background(), mustDuration(%q))
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("HTTP server shutdown error: %%v", err)
+		}
+		close(stopped)
+	}()
+
 	log.Printf("listening on %%s", server.Addr)
-	return server.ListenAndServe()
+	if err := server.ListenAndServe(); err != http.ErrServerClosed {
+		return err
+	}
+	<-stopped
+	return nil
 }
 
 func env(key, fallback string) string {
@@ -283,7 +313,7 @@ func mustDuration(value string) time.Duration {
 	}
 	return duration
 }
-`, module, module, module, middlewareImport, mongoTimeout(ctx), ctx.Config.Mongo.Connection.Database, repoVars.String(), serviceVars.String(), serverFields.String(), mongoAuthBasicUsernameEnv(ctx), mongoAuthBasicPasswordEnv(ctx), mongoAuthBasicRealm(ctx), mongoQuotedSlice(mongoAuthBasicRoles(ctx)), mongoAuthJWTSecretEnv(ctx), mongoAuthJWTHeader(ctx), mongoAuthJWTScheme(ctx), mongoAuthJWTIssuer(ctx), mongoAuthJWTAudience(ctx), mongoAuthRoleClaim(ctx), handlerSetup, mongoHTTPAddr(ctx))
+`, module, module, module, middlewareImport, mongoTimeout(ctx), mongoURIEnv(ctx), ctx.Config.Mongo.Connection.Database, repoVars.String(), serviceVars.String(), serverFields.String(), mongoAuthBasicUsernameEnv(ctx), mongoAuthBasicPasswordEnv(ctx), mongoAuthBasicRealm(ctx), mongoQuotedSlice(mongoAuthBasicRoles(ctx)), mongoAuthJWTSecretEnv(ctx), mongoAuthJWTHeader(ctx), mongoAuthJWTScheme(ctx), mongoAuthJWTIssuer(ctx), mongoAuthJWTAudience(ctx), mongoAuthRoleClaim(ctx), mongoReadinessRouteSource(ctx, readinessPath), handlerSetup, mongoHTTPAddr(ctx), defaultString(ctx.Config.Rest.HTTP.Timeouts.ReadHeader, "5s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Read, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Write, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Idle, "60s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Shutdown, "10s"))
 }
 
 func mongoServerResponseSource() string {
@@ -1526,6 +1556,39 @@ func mongoTimeout(ctx Context) string {
 		timeout = "10s"
 	}
 	return timeout
+}
+
+func mongoURIEnv(ctx Context) string {
+	if ctx.Config.Mongo != nil && ctx.Config.Mongo.Connection.URIEnv != "" {
+		return ctx.Config.Mongo.Connection.URIEnv
+	}
+	return "MONGO_URI"
+}
+
+func mongoReadinessRouteSource(ctx Context, path string) string {
+	if !ctx.Config.Rest.HTTP.Readiness.Enabled.Bool() {
+		return ""
+	}
+	if path == "" || path == "/" {
+		path = routePath(ctx.Config.Rest.HTTP.BasePath, "/ready")
+	}
+	return fmt.Sprintf(`router.HandleFunc(%q, func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := client.Ping(ctx, nil); err != nil {
+			http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{\"status\":\"ready\"}\n"))
+	}).Methods(http.MethodGet)`, path)
+}
+
+func defaultString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func mongoQuotedSlice(values []string) string {

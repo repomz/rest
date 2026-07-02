@@ -46,6 +46,9 @@ func ListEndpoints(configDir string) ([]EndpointInfo, error) {
 	if ctx.Config.Rest.HTTP.Health.Enabled.Bool() {
 		add(config.GeneratedEndpoint{Name: "Health", Method: "GET", Path: routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.HTTP.Health.Path), Public: true}, "system")
 	}
+	if ctx.Config.Rest.HTTP.Readiness.Enabled.Bool() {
+		add(config.GeneratedEndpoint{Name: "Readiness", Method: "GET", Path: routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.HTTP.Readiness.Path), Public: true}, "system")
+	}
 	if ctx.Config.Rest.Observability.Metrics.Enabled.Bool() {
 		add(config.GeneratedEndpoint{Name: "Metrics", Method: "GET", Path: routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.Observability.Metrics.Path), Public: true}, "system")
 	}

@@ -30,6 +30,7 @@ type HTTP struct {
 	Limits           HTTPLimits      `yaml:"limits"`
 	GracefulShutdown GeneratedSwitch `yaml:"graceful_shutdown"`
 	Health           Health          `yaml:"health"`
+	Readiness        Health          `yaml:"readiness"`
 	Middleware       Middleware      `yaml:"middleware"`
 }
 

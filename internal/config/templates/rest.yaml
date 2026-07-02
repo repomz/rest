@@ -34,8 +34,11 @@ http:
   graceful_shutdown:
     enabled: enable                   # Only enable is supported: gracefully stops the HTTP server on SIGINT/SIGTERM.
   health:
-    enabled: true
+    enabled: true                    # Lightweight liveness endpoint: process is running.
     path: /health
+  readiness:
+    enabled: true                    # Readiness endpoint: checks database connectivity.
+    path: /ready
   middleware:
     request_id:
       enabled: true

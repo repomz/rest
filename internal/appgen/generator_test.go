@@ -235,6 +235,9 @@ func TestListEndpointsShowsMongoSourcesAndPendingAuth(t *testing.T) {
 	if got["GET /health"].Access != "public" || got["GET /health"].Source != "system" {
 		t.Fatalf("health endpoint = %+v", got["GET /health"])
 	}
+	if got["GET /ready"].Access != "public" || got["GET /ready"].Source != "system" {
+		t.Fatalf("readiness endpoint = %+v", got["GET /ready"])
+	}
 	create := got["POST /items"]
 	if create.Name != "CreateItem" || create.Source != "mongo" || create.Access != "pending" {
 		t.Fatalf("create endpoint = %+v", create)

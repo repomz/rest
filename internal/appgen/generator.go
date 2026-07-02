@@ -140,6 +140,7 @@ func validateConfig(bundle config.Bundle) error {
 	for name, path := range map[string]string{
 		"http.base_path":             bundle.Rest.HTTP.BasePath,
 		"http.health.path":           bundle.Rest.HTTP.Health.Path,
+		"http.readiness.path":        bundle.Rest.HTTP.Readiness.Path,
 		"openapi.spec_path":          bundle.Rest.OpenAPI.SpecPath,
 		"openapi.ui_path":            bundle.Rest.OpenAPI.UIPath,
 		"observability.metrics.path": bundle.Rest.Observability.Metrics.Path,
@@ -400,6 +401,9 @@ func discoverAuthEndpoints(ctx Context) ([]config.GeneratedEndpoint, error) {
 	}
 	if ctx.Config.Rest.HTTP.Health.Enabled.Bool() {
 		endpoints = append(endpoints, config.GeneratedEndpoint{Name: "Health", Method: "GET", Path: routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.HTTP.Health.Path), Public: true})
+	}
+	if ctx.Config.Rest.HTTP.Readiness.Enabled.Bool() {
+		endpoints = append(endpoints, config.GeneratedEndpoint{Name: "Readiness", Method: "GET", Path: routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.HTTP.Readiness.Path), Public: true})
 	}
 	if ctx.Config.Rest.Observability.Metrics.Enabled.Bool() {
 		endpoints = append(endpoints, config.GeneratedEndpoint{Name: "Metrics", Method: "GET", Path: routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.Observability.Metrics.Path), Public: true})
@@ -874,6 +878,8 @@ func (SQLFeature) Generate(ctx Context) error {
 				GracefulShutdown:      ctx.Config.Rest.HTTP.GracefulShutdown.Enabled.Bool(),
 				Health:                ctx.Config.Rest.HTTP.Health.Enabled.Bool(),
 				HealthPath:            ctx.Config.Rest.HTTP.Health.Path,
+				Readiness:             ctx.Config.Rest.HTTP.Readiness.Enabled.Bool(),
+				ReadinessPath:         ctx.Config.Rest.HTTP.Readiness.Path,
 			},
 			Auth: authFeatures(ctx.Config),
 			Logging: generator.LoggingFeatures{

@@ -269,6 +269,10 @@ func TestRestConfigUsesOnlySupportedOptionalFeatures(t *testing.T) {
 	if gracefulShutdown["enabled"] != true && gracefulShutdown["enabled"] != "enable" && gracefulShutdown["enabled"] != "enabled" {
 		t.Fatal("http.graceful_shutdown.enabled must be present and enabled")
 	}
+	readiness := requireMapValue(t, http, "readiness")
+	if readiness["enabled"] != true || readiness["path"] != "/ready" {
+		t.Fatalf("http.readiness must be enabled at /ready, got %+v", readiness)
+	}
 	features := requireMapValue(t, rest, "features")
 	for _, removed := range []string{"safe_app_reload", "safe_config_reload"} {
 		if _, exists := features[removed]; exists {

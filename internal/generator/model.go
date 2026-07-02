@@ -126,6 +126,8 @@ type HTTPFeatures struct {
 	GracefulShutdown      bool
 	Health                bool
 	HealthPath            string
+	Readiness             bool
+	ReadinessPath         string
 }
 
 type LoggingFeatures struct {
