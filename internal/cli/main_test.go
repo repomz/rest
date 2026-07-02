@@ -273,6 +273,37 @@ func TestRunInitModes(t *testing.T) {
 	}
 }
 
+func TestRunInitUsesExistingSQLCConfig(t *testing.T) {
+	dir := t.TempDir()
+	withWorkingDir(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.test/existing\n\ngo 1.24.3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sqlc.yaml"), []byte("version: \"2\"\nsql: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runInit(nil); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "rest_config", "rest_sqlc.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "  sqlc_path: ../sqlc.yaml") {
+		t.Fatalf("rest_sqlc.yaml must point to existing sqlc.yaml:\n%s", content)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "rest_sqlc", "rest_sqlc.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("rest_sqlc skeleton must not be generated when existing sqlc.yaml is used, got %v", err)
+	}
+	goMod, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(goMod), "module example.test/existing") {
+		t.Fatalf("existing go.mod was modified unexpectedly:\n%s", goMod)
+	}
+}
+
 func TestRunInitRejectsRemovedArguments(t *testing.T) {
 	for _, args := range [][]string{{"--sqlc"}, {"--path", "."}} {
 		if err := runInit(args); err == nil {

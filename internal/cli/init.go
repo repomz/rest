@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -32,6 +33,20 @@ func runInit(args []string) error {
 	}
 	maybePrintInitWelcome()
 	maybeOfferInitUpdate()
+	if err := confirmInitOverlay("."); err != nil {
+		return err
+	}
+	existingSQLC := ""
+	if options.example == "" {
+		var err error
+		existingSQLC, err = detectExistingSQLCConfig(".")
+		if err != nil {
+			return err
+		}
+		if existingSQLC != "" && !confirmUseExistingSQLC(os.Stdin, os.Stdout, existingSQLC) {
+			existingSQLC = ""
+		}
+	}
 	switch options.example {
 	case "sql":
 		if err := sqlcconfig.ValidateExample("."); err != nil {
@@ -39,8 +54,10 @@ func runInit(args []string) error {
 		}
 	case "mongo":
 	default:
-		if err := sqlcconfig.ValidateProject("."); err != nil {
-			return err
+		if existingSQLC == "" {
+			if err := sqlcconfig.ValidateProject("."); err != nil {
+				return err
+			}
 		}
 	}
 	configDir := "rest_config"
@@ -57,6 +74,11 @@ func runInit(args []string) error {
 		if err := config.GenerateForSQLC(configDir); err != nil {
 			return err
 		}
+		if existingSQLC != "" {
+			if err := pointRestSQLCConfigToExisting(configDir, existingSQLC); err != nil {
+				return err
+			}
+		}
 	}
 	switch options.example {
 	case "sql":
@@ -66,6 +88,10 @@ func runInit(args []string) error {
 	case "mongo":
 		return nil
 	default:
+		if existingSQLC != "" {
+			fmt.Fprintf(os.Stdout, "Using existing SQLC config: %s\n", existingSQLC)
+			return nil
+		}
 		if err := sqlcconfig.RemoveExample("."); err != nil {
 			return err
 		}
@@ -74,6 +100,97 @@ func runInit(args []string) error {
 		}
 	}
 	return nil
+}
+
+func confirmInitOverlay(root string) error {
+	entries, err := visibleProjectEntries(root)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 || !isTerminalFile(os.Stdin) || !isTerminalFile(os.Stdout) {
+		return nil
+	}
+	fmt.Fprintln(os.Stdout, "Existing project files were found:")
+	for _, entry := range entries {
+		fmt.Fprintf(os.Stdout, "- %s\n", entry)
+	}
+	fmt.Fprint(os.Stdout, "Continue and add rest files without deleting existing files? [Y/n]: ")
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil && len(line) == 0 {
+		fmt.Fprintln(os.Stdout)
+		return nil
+	}
+	answer := strings.ToLower(strings.TrimSpace(line))
+	if answer == "" || answer == "y" || answer == "yes" {
+		return nil
+	}
+	return fmt.Errorf("rest init cancelled; run it in an empty directory or continue with overlay mode")
+}
+
+func visibleProjectEntries(root string) ([]string, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, entry := range entries {
+		name := entry.Name()
+		switch name {
+		case ".git", ".DS_Store":
+			continue
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+func detectExistingSQLCConfig(root string) (string, error) {
+	candidates := []string{
+		"sqlc.yaml",
+		"sqlc.yml",
+		filepath.Join("sqlc", "sqlc.yaml"),
+		filepath.Join("sqlc", "sqlc.yml"),
+	}
+	for _, candidate := range candidates {
+		path := filepath.Join(root, candidate)
+		info, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if !info.IsDir() {
+			return filepath.ToSlash(candidate), nil
+		}
+	}
+	return "", nil
+}
+
+func confirmUseExistingSQLC(r io.Reader, w io.Writer, path string) bool {
+	if !isTerminalFile(os.Stdin) || !isTerminalFile(os.Stdout) {
+		return true
+	}
+	fmt.Fprintf(w, "Existing SQLC config found: %s\n", path)
+	fmt.Fprint(w, "Use it instead of generating rest_sqlc/ skeleton? [Y/n]: ")
+	line, err := bufio.NewReader(r).ReadString('\n')
+	if err != nil && len(line) == 0 {
+		fmt.Fprintln(w)
+		return true
+	}
+	answer := strings.ToLower(strings.TrimSpace(line))
+	return answer == "" || answer == "y" || answer == "yes"
+}
+
+func pointRestSQLCConfigToExisting(configDir, sqlcPath string) error {
+	path := filepath.Join(configDir, "rest_sqlc.yaml")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	relative := filepath.ToSlash(filepath.Join("..", filepath.FromSlash(sqlcPath)))
+	text := strings.Replace(string(content), "  sqlc_path: ../rest_sqlc/rest_sqlc.yaml", "  sqlc_path: "+relative, 1)
+	return os.WriteFile(path, []byte(text), 0o644)
 }
 
 func maybeOfferInitUpdate() {
