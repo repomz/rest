@@ -461,6 +461,30 @@ func BuildMetricsSource(features FeatureOptions) (string, error) {
 	return string(out), nil
 }
 
+func BuildGitignoreSource(features FeatureOptions) (string, error) {
+	out, err := renderTemplateBytes(defaultPath(features.Build.GitignorePath, ".gitignore"), gitignoreTemplate, renderData{Features: features})
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+func BuildCIWorkflowSource(features FeatureOptions) (string, error) {
+	out, err := renderTemplateBytes(defaultPath(features.Build.CIPath, ".github/workflows/ci.yaml"), ciWorkflowTemplate, renderData{Features: features})
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+func BuildCDWorkflowSource(features FeatureOptions) (string, error) {
+	out, err := renderTemplateBytes(defaultPath(features.Build.CDPath, ".github/workflows/cd.yaml"), cdWorkflowTemplate, renderData{Features: features})
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 func removeGeneratedEnv(path string) error {
 	content, err := os.ReadFile(path)
 	if os.IsNotExist(err) {

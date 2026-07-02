@@ -9,11 +9,9 @@
 # PROJECT
 # ------------------------------------------------------------------------------
 version: "0.1.0"                     # rest config version; keep as generated unless migration docs say otherwise.
-module: github.com/repomz/myapp       # Go module path written to generated go.mod.
+module: github.com/repomz/myapp       # Replace with your Go module path, usually your repository URL for go.mod.
 project_path: .                       # Output directory for generated files; keep "." for the current project.
-language: golang                      # Supported values: golang, go. Currently only Go is generated.
 go_version: "1.24.3"                 # Go version written to generated go.mod.
-environment: development              # Static environment label for generated config/logs: development, testing, staging, production.
 
 # ------------------------------------------------------------------------------
 # HTTP SERVER

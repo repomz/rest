@@ -39,6 +39,24 @@ func (MongoFeature) Generate(ctx Context) error {
 		"internal/app/transport/httpserver/swagger.go":       mongoSwaggerSource(ctx, swagger),
 		"internal/app/transport/httpserver/mongo_helpers.go": mongoHTTPHelpersSource(),
 	}
+	if ctx.Config.Rest.Features.Makefile.Enabled.Bool() {
+		output := ctx.Config.Rest.Features.Makefile.Output
+		if output == "" {
+			output = "Makefile"
+		}
+		files[output] = mongoMakefileSource(ctx)
+	}
+	if ctx.Config.Rest.Features.Gitignore.Enabled.Bool() {
+		output := ctx.Config.Rest.Features.Gitignore.Output
+		if output == "" {
+			output = ".gitignore"
+		}
+		source, err := generator.BuildGitignoreSource(features)
+		if err != nil {
+			return err
+		}
+		files[output] = source
+	}
 	if mongoMiddlewareEnabled(ctx) {
 		files["internal/app/transport/middleware/http.go"] = mongoMiddlewareSource(ctx)
 	}
@@ -79,7 +97,11 @@ func (MongoFeature) Generate(ctx Context) error {
 		if envPath == "" {
 			envPath = ".env.example"
 		}
-		files[envPath] = mongoEnvSource(ctx)
+		envSource := mongoEnvSource(ctx)
+		files[envPath] = envSource
+		if ctx.Config.Rest.Features.Env.GenerateLocalEnv {
+			files[".env"] = envSource
+		}
 	}
 	if ctx.Config.Rest.Docker.Enabled.Bool() {
 		output := ctx.Config.Rest.Docker.Output
@@ -106,6 +128,28 @@ func (MongoFeature) Generate(ctx Context) error {
 			output = "DEPLOYMENT.md"
 		}
 		files[output] = generator.BuildDeploymentGuideSource(mongoFeatureOptions(ctx, models))
+	}
+	if ctx.Config.Rest.Features.CI.Enabled.Bool() {
+		output := ctx.Config.Rest.Features.CI.Output
+		if output == "" {
+			output = ".github/workflows/ci.yaml"
+		}
+		source, err := generator.BuildCIWorkflowSource(features)
+		if err != nil {
+			return err
+		}
+		files[output] = source
+	}
+	if ctx.Config.Rest.Features.CD.Enabled.Bool() {
+		output := ctx.Config.Rest.Features.CD.Output
+		if output == "" {
+			output = ".github/workflows/cd.yaml"
+		}
+		source, err := generator.BuildCDWorkflowSource(features)
+		if err != nil {
+			return err
+		}
+		files[output] = source
 	}
 	for path, content := range files {
 		content = strings.ReplaceAll(content, "{{MODULE}}", module)
@@ -162,14 +206,23 @@ func mongoFeatureOptions(ctx Context, models []generator.MongoModel) generator.F
 			SecuritySchemes: ctx.Config.Rest.OpenAPI.SecuritySchemes,
 		},
 		Build: generator.BuildFeatures{
-			Configured:      true,
-			Backend:         "mongo",
-			HTTPPort:        ctx.Config.Rest.HTTP.Port,
-			Makefile:        ctx.Config.Rest.Features.Makefile.Enabled.Bool(),
-			Env:             ctx.Config.Rest.Features.Env.Enabled.Bool(),
-			EnvPath:         ctx.Config.Rest.Features.Env.Output,
-			DeploymentGuide: ctx.Config.Rest.Features.DeploymentGuide.Enabled.Bool(),
-			DeploymentPath:  ctx.Config.Rest.Features.DeploymentGuide.Output,
+			Configured:       true,
+			Backend:          "mongo",
+			HTTPPort:         ctx.Config.Rest.HTTP.Port,
+			Makefile:         ctx.Config.Rest.Features.Makefile.Enabled.Bool(),
+			MakefilePath:     ctx.Config.Rest.Features.Makefile.Output,
+			Gitignore:        ctx.Config.Rest.Features.Gitignore.Enabled.Bool(),
+			GitignorePath:    ctx.Config.Rest.Features.Gitignore.Output,
+			GitignoreAppend:  ctx.Config.Rest.Features.Gitignore.Append,
+			Env:              ctx.Config.Rest.Features.Env.Enabled.Bool(),
+			EnvPath:          ctx.Config.Rest.Features.Env.Output,
+			GenerateLocalEnv: ctx.Config.Rest.Features.Env.GenerateLocalEnv,
+			DeploymentGuide:  ctx.Config.Rest.Features.DeploymentGuide.Enabled.Bool(),
+			DeploymentPath:   ctx.Config.Rest.Features.DeploymentGuide.Output,
+			CI:               ctx.Config.Rest.Features.CI.Enabled.Bool(),
+			CIPath:           ctx.Config.Rest.Features.CI.Output,
+			CD:               ctx.Config.Rest.Features.CD.Enabled.Bool(),
+			CDPath:           ctx.Config.Rest.Features.CD.Output,
 		},
 		Metrics: generator.MetricsFeatures{
 			Enabled:          ctx.Config.Rest.Observability.Metrics.Enabled.Bool(),
@@ -440,6 +493,55 @@ func writeError(w http.ResponseWriter, status int, code string, err error) {
 func mongoMiddlewareEnabled(ctx Context) bool {
 	middleware := ctx.Config.Rest.HTTP.Middleware
 	return middleware.CORS.Enabled.Bool() || middleware.SecurityHeaders.Enabled.Bool() || middleware.RateLimit.Enabled.Bool() || middleware.Recovery.Enabled.Bool() || middleware.RequestID.Enabled.Bool()
+}
+
+func mongoMakefileSource(ctx Context) string {
+	httpAddr := mongoHTTPAddr(ctx)
+	uriEnv := "MONGO_URI"
+	if ctx.Config.Mongo != nil && ctx.Config.Mongo.Connection.URIEnv != "" {
+		uriEnv = ctx.Config.Mongo.Connection.URIEnv
+	}
+	return fmt.Sprintf(`-include .env
+
+APP_NAME ?= app
+BUILD_DIR ?= ./bin
+HTTP_ADDR ?= %s
+%s ?= mongodb://localhost:27017
+GOCACHE ?= $(CURDIR)/.cache/go-build
+GOLANGCI_LINT_VERSION ?= latest
+REST ?= rest
+
+export
+
+.PHONY: build rest-gen run test clean install-lint lint
+
+build:
+	@mkdir -p $(BUILD_DIR)
+	go build -o $(BUILD_DIR)/$(APP_NAME) ./cmd
+
+rest-gen:
+	$(REST) gen
+
+run:
+	@mkdir -p $(BUILD_DIR) && \
+	go build -o $(BUILD_DIR)/$(APP_NAME) ./cmd && \
+	HTTP_ADDR=$(HTTP_ADDR) \
+	%s=$(%s) \
+	$(BUILD_DIR)/$(APP_NAME)
+
+test:
+	go test -race -v ./...
+
+install-lint:
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
+lint:
+	@command -v golangci-lint >/dev/null 2>&1 || $(MAKE) install-lint
+	golangci-lint run ./...
+
+clean:
+	rm -rf $(BUILD_DIR)
+`, httpAddr, uriEnv, uriEnv, uriEnv)
 }
 
 func mongoMiddlewareSource(ctx Context) string {

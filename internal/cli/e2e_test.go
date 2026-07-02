@@ -222,6 +222,46 @@ func TestE2EGeneratesDeploymentGuideWhenEnabled(t *testing.T) {
 	})
 }
 
+func TestE2EMongoGeneratesProjectSupportFilesWhenEnabled(t *testing.T) {
+	projectDir := filepath.Join(t.TempDir(), "mongo-support-app")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withWorkingDir(t, projectDir)
+	if err := run([]string{"init", "--example", "mongo"}); err != nil {
+		t.Fatal(err)
+	}
+	patchFileForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"), map[string]string{
+		"  makefile:\n    enabled: false":  "  makefile:\n    enabled: true",
+		"  gitignore:\n    enabled: false": "  gitignore:\n    enabled: true",
+		"    generate_local_env: false":    "    generate_local_env: true",
+		"  ci:\n    enabled: false":        "  ci:\n    enabled: true",
+		"  cd:\n    enabled: false":        "  cd:\n    enabled: true",
+	})
+	if err := run([]string{"gen"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"Makefile",
+		".gitignore",
+		".env.example",
+		".env",
+		filepath.Join(".github", "workflows", "ci.yaml"),
+		filepath.Join(".github", "workflows", "cd.yaml"),
+	} {
+		if _, err := os.Stat(filepath.Join(projectDir, path)); err != nil {
+			t.Fatalf("expected Mongo support file %s: %v", path, err)
+		}
+	}
+	makefile, err := os.ReadFile(filepath.Join(projectDir, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(makefile), "MONGO_URI") || strings.Contains(string(makefile), "DB_DSN") {
+		t.Fatalf("Mongo Makefile must use Mongo settings only:\n%s", makefile)
+	}
+}
+
 func assertDeploymentGuide(t *testing.T, path string, expected []string) {
 	t.Helper()
 	content, err := os.ReadFile(path)

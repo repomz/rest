@@ -261,6 +261,15 @@ func TestRestConfigUsesOnlySupportedOptionalFeatures(t *testing.T) {
 	if _, exists := rest["auto_sqlc"]; !exists {
 		t.Fatal("rest.yaml must define the auto_sqlc switch")
 	}
+	if _, exists := rest["environment"]; exists {
+		t.Fatal("top-level environment must not remain in rest.yaml until it affects generation")
+	}
+	if _, exists := rest["language"]; exists {
+		t.Fatal("top-level language must not remain in rest.yaml while only Go generation is supported")
+	}
+	if module, _ := rest["module"].(string); module == "" {
+		t.Fatal("rest.yaml must define the Go module path")
+	}
 	http := requireMapValue(t, rest, "http")
 	if _, exists := http["database_pool"]; exists {
 		t.Fatal("database/sql pooling is an implementation detail and must not be an HTTP feature switch")
@@ -279,10 +288,13 @@ func TestRestConfigUsesOnlySupportedOptionalFeatures(t *testing.T) {
 			t.Fatalf("removed feature %q must not remain in rest.yaml", removed)
 		}
 	}
-	for _, key := range []string{"makefile", "gitignore", "env", "init_db", "ci", "cd"} {
+	for _, key := range []string{"makefile", "gitignore", "env", "init_db", "deployment_guide", "ci", "cd"} {
 		section := requireMapValue(t, features, key)
 		if _, exists := section["enabled"]; !exists {
 			t.Fatalf("feature %q must have an explicit enabled switch", key)
+		}
+		if _, exists := section["output"]; !exists {
+			t.Fatalf("feature %q must define output", key)
 		}
 	}
 	docker := requireMapValue(t, rest, "docker")

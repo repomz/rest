@@ -35,6 +35,17 @@ func TestValidateConfigRequiresAtLeastOneMetricCollector(t *testing.T) {
 	}
 }
 
+func TestValidateConfigRequiresEnabledFeatureOutputs(t *testing.T) {
+	bundle := minimalBundle()
+	bundle.Rest.Features.CI.Enabled = config.Enabled(true)
+	bundle.Rest.Features.CI.Output = ""
+
+	err := validateConfig(bundle)
+	if err == nil || !strings.Contains(err.Error(), "features.ci.output") {
+		t.Fatalf("expected feature output validation error, got %v", err)
+	}
+}
+
 func TestResolveSQLCPathUsesConfigDir(t *testing.T) {
 	got := resolveSQLCPath("/project/rest_config", "../rest_sqlc/rest_sqlc.yaml")
 	want := "/project/rest_sqlc/rest_sqlc.yaml"

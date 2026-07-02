@@ -246,6 +246,25 @@ func validateConfig(bundle config.Bundle) error {
 			}
 		}
 	}
+	for name, enabledOutput := range map[string]struct {
+		enabled bool
+		output  string
+	}{
+		"features.makefile.output":         {bundle.Rest.Features.Makefile.Enabled.Bool(), bundle.Rest.Features.Makefile.Output},
+		"features.gitignore.output":        {bundle.Rest.Features.Gitignore.Enabled.Bool(), bundle.Rest.Features.Gitignore.Output},
+		"features.env.output":              {bundle.Rest.Features.Env.Enabled.Bool(), bundle.Rest.Features.Env.Output},
+		"features.init_db.output":          {bundle.Rest.Features.InitDB.Enabled.Bool(), bundle.Rest.Features.InitDB.Output},
+		"features.deployment_guide.output": {bundle.Rest.Features.DeploymentGuide.Enabled.Bool(), bundle.Rest.Features.DeploymentGuide.Output},
+		"features.ci.output":               {bundle.Rest.Features.CI.Enabled.Bool(), bundle.Rest.Features.CI.Output},
+		"features.cd.output":               {bundle.Rest.Features.CD.Enabled.Bool(), bundle.Rest.Features.CD.Output},
+	} {
+		if enabledOutput.enabled && enabledOutput.output == "" {
+			return fmt.Errorf("%s is required when enabled", name)
+		}
+	}
+	if bundle.Rest.Features.InitDB.Enabled.Bool() && !bundle.Rest.SQL.Bool() {
+		return fmt.Errorf("features.init_db is supported only for SQL apps")
+	}
 	if bundle.SQL != nil {
 		if database := strings.ToLower(bundle.SQL.Database); database != "" && database != "postgresql" && database != "postgres" {
 			return fmt.Errorf("unsupported SQL database %q", bundle.SQL.Database)
