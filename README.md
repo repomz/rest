@@ -1,5 +1,9 @@
 # REST
 
+<p align="center">
+  <img src="assets/rest-logo.svg" alt="rest — Write queries. Get an application. Add business logic." width="620">
+</p>
+
 <p align="center"><strong>Write queries. Get an application. Add business logic.</strong></p>
 
 [![CI](https://github.com/repomz/rest/actions/workflows/ci.yml/badge.svg)](https://github.com/repomz/rest/actions/workflows/ci.yml)

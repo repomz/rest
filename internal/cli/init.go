@@ -30,6 +30,7 @@ func runInit(args []string) error {
 	if err != nil {
 		return err
 	}
+	maybePrintInitWelcome()
 	maybeOfferInitUpdate()
 	switch options.example {
 	case "sql":

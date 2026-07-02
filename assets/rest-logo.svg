@@ -1,0 +1,25 @@
+<svg width="900" height="260" viewBox="0 0 900 260" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">rest</title>
+  <desc id="desc">rest logo with a bright generator spark and the tagline Write queries. Get an application. Add business logic.</desc>
+
+  <rect width="900" height="260" rx="36" fill="#07111F"/>
+
+  <!-- Icon tile -->
+  <rect x="56" y="48" width="164" height="164" rx="42" fill="url(#tileGradient)"/>
+  <path d="M138 80L151.5 116.5L188 130L151.5 143.5L138 180L124.5 143.5L88 130L124.5 116.5L138 80Z" fill="#F8FAFC"/>
+  <path d="M180 72L186 88L202 94L186 100L180 116L174 100L158 94L174 88L180 72Z" fill="#A7F3D0"/>
+  <circle cx="96" cy="88" r="8" fill="#E0F2FE"/>
+  <circle cx="198" cy="178" r="8" fill="#A7F3D0"/>
+
+  <!-- Wordmark -->
+  <text x="262" y="126" fill="#F8FAFC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="84" font-weight="850" letter-spacing="-2">rest</text>
+  <text x="266" y="168" fill="#94A3B8" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="24" font-weight="500">Write queries. Get an application. Add business logic.</text>
+
+  <defs>
+    <linearGradient id="tileGradient" x1="56" y1="48" x2="220" y2="212" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8"/>
+      <stop offset="0.55" stop-color="#0EA5E9"/>
+      <stop offset="1" stop-color="#10B981"/>
+    </linearGradient>
+  </defs>
+</svg>

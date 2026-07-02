@@ -127,6 +127,20 @@ func TestConfirmInitUpdate(t *testing.T) {
 	}
 }
 
+func TestPrintWelcomeBanner(t *testing.T) {
+	var output bytes.Buffer
+	printWelcomeBanner(&output, false)
+	text := output.String()
+	for _, want := range []string{"rest", "Write queries. Get an application. Add business logic."} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("welcome banner does not contain %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "\x1b[") {
+		t.Fatalf("non-colored welcome banner must not contain ANSI escapes:\n%q", text)
+	}
+}
+
 func TestResolveVersion(t *testing.T) {
 	tests := []struct {
 		name          string
