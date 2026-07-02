@@ -68,16 +68,26 @@ http:
       window: 1m                       # Go duration format.
 
 # ------------------------------------------------------------------------------
-# DATA SOURCES AND AUTHORIZATION
+# DATA SOURCES
 # ------------------------------------------------------------------------------
-# Detailed settings are stored in rest_sqlc.yaml and mongo_rest.yaml.
-# When auth: enable is set, auth_rest.yaml is created by the first rest gen after endpoint discovery.
-sql: enable                          # enable uses SQLC/PostgreSQL generation.
-auto_sqlc: enable                    # Automatically runs during rest gen: sqlc generate -f <sqlc_path>.
+# Choose one backend for the generated application.
+# SQL and Mongo are currently mutually exclusive in generated runtime code.
+sql: enable                          # enable generates a SQLC/PostgreSQL application.
+mongo: disable                       # enable generates a MongoDB application from rest_config/rest_mongo contracts.
+
+# ------------------------------------------------------------------------------
+# SQLC
+# ------------------------------------------------------------------------------
+# Detailed SQL settings live in rest_config/rest_sqlc.yaml.
+auto_sqlc: enable                    # enable runs: sqlc generate -f <sqlc_path> during rest gen.
                                       # Requires sqlc: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest.
-                                      # If disabled, run sqlc generate -f <sqlc_path> manually before rest gen.
-mongo: disable                       # enable uses Mongo contracts from rest_config/rest_mongo.
-auth: disable                        # enable creates/syncs auth_rest.yaml after endpoint discovery.
+                                      # disable means you run sqlc generate manually before rest gen.
+
+# ------------------------------------------------------------------------------
+# AUTHENTICATION AND AUTHORIZATION
+# ------------------------------------------------------------------------------
+# When enabled, auth_rest.yaml is created/synced by rest gen after endpoint discovery.
+auth: disable                        # enable generates JWT or Basic Auth middleware after auth_rest.yaml is configured.
 
 # ------------------------------------------------------------------------------
 # SAFE RELOAD
