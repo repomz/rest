@@ -4,7 +4,7 @@ Thanks for considering a contribution. `rest` is a Go CLI that generates layered
 
 ## Local setup
 
-Install Go 1.24 or newer, then prepare the repository:
+Install Go 1.25.11 or newer, then prepare the repository:
 
 ```bash
 make setup
@@ -14,7 +14,7 @@ make check
 For SQL-related generator work, install SQLC:
 
 ```bash
-go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0
 ```
 
 Some optional checks require extra tools:

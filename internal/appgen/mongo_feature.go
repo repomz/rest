@@ -527,7 +527,7 @@ BUILD_DIR ?= ./bin
 HTTP_ADDR ?= %s
 %s ?= mongodb://localhost:27017
 GOCACHE ?= $(CURDIR)/.cache/go-build
-GOLANGCI_LINT_VERSION ?= latest
+GOLANGCI_LINT_VERSION ?= v1.64.8
 REST ?= rest
 
 export

@@ -264,7 +264,7 @@ DB_DSN ?= postgres://$(DB_USER):$(DB_PASS)@localhost:5432/$(DB_NAME)?$(DB_OPTION
 HTTP_ADDR ?= {{ httpAddr .Features.HTTP.Host .Features.HTTP.Port }}
 DEBUG_ERRORS ?= 0
 GOCACHE ?= $(CURDIR)/.cache/go-build
-GOLANGCI_LINT_VERSION ?= latest
+GOLANGCI_LINT_VERSION ?= v1.64.8
 REST ?= rest
 
 export
@@ -398,12 +398,12 @@ on:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         go-version:
-          - "1.24.3"
+          - "1.25.11"
           - "stable"
     steps:
       - name: Checkout
@@ -425,7 +425,7 @@ jobs:
         run: go test -race ./...
 
       - name: Vulnerability scan
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
 
       - name: Build
         run: go build ./cmd
@@ -441,7 +441,7 @@ on:
 
 jobs:
   docker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write

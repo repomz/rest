@@ -20,12 +20,3 @@ engine: mongo-go-driver              # Currently supported: official MongoDB Go 
 mongo:
   # Directory relative to rest_config or an absolute path.
   models_path: rest_mongo
-
-# ------------------------------------------------------------------------------
-# GENERATED OUTPUT
-# ------------------------------------------------------------------------------
-generation:
-  package: mongo
-  output: internal/app/mongo
-  repository_output: internal/app/repository/mongorepo
-  create_indexes_on_start: true

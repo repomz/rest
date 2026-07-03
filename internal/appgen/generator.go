@@ -117,9 +117,6 @@ func validateConfig(bundle config.Bundle) error {
 	if bundle.Rest.SQL.Bool() && bundle.Rest.Mongo.Bool() {
 		return fmt.Errorf("sql and mongo cannot both be enabled; choose one backend in rest.yaml")
 	}
-	if language := strings.ToLower(bundle.Rest.Language); language != "" && language != "golang" && language != "go" {
-		return fmt.Errorf("unsupported language %q", bundle.Rest.Language)
-	}
 	if framework := strings.ToLower(bundle.Rest.HTTP.Framework); framework != "" && framework != "std" {
 		return fmt.Errorf("unsupported HTTP framework %q", bundle.Rest.HTTP.Framework)
 	}
@@ -381,7 +378,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/lib/pq v1.12.3
 )
-`, ctx.Config.Rest.Module, defaultValue(ctx.Config.Rest.GoVersion, "1.24.3"))
+`, ctx.Config.Rest.Module, defaultValue(ctx.Config.Rest.GoVersion, "1.25.11"))
 	if err := os.WriteFile(goMod, []byte(content), 0o644); err != nil {
 		return err
 	}
@@ -789,7 +786,7 @@ func runAutoSQLC(ctx Context) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("run sqlc generate -f %s: %w; install sqlc with: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest", sqlcPath, err)
+		return fmt.Errorf("run sqlc generate -f %s: %w; install sqlc with: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0", sqlcPath, err)
 	}
 	return nil
 }

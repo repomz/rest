@@ -12,7 +12,7 @@ func TestWorkflowTemplatesRenderGitHubExpressions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"name: CI", "go-version: ${{ matrix.go-version }}", "go test -race ./...", "govulncheck@latest ./...", "go vet ./...", "go build ./cmd"} {
+	for _, expected := range []string{"name: CI", "go-version: ${{ matrix.go-version }}", "go test -race ./...", "govulncheck@v1.1.4 ./...", "go vet ./...", "go build ./cmd"} {
 		if !strings.Contains(string(ci), expected) {
 			t.Fatalf("CI workflow missing %q:\n%s", expected, ci)
 		}

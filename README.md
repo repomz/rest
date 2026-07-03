@@ -5,11 +5,13 @@
 </p>
 
 [![CI](https://github.com/repomz/rest/actions/workflows/ci.yml/badge.svg)](https://github.com/repomz/rest/actions/workflows/ci.yml)
-[![Go](https://img.shields.io/badge/Go-1.24.3+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.25.11+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![sqlc](https://img.shields.io/badge/sqlc-inspired-5C6BC0)](https://sqlc.dev/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-`rest` is a Go application generator inspired by [sqlc](https://github.com/sqlc-dev/sqlc). SQLC turns SQL into type-safe Go code; `rest` takes the next step and turns SQLC output or MongoDB contracts into a runnable REST application.
+`rest` is a Golang application generator inspired by [sqlc](https://github.com/sqlc-dev/sqlc). SQLC turns SQL into type-safe Go code; `rest` takes the next step and turns SQLC output or MongoDB contracts into a runnable REST application.
+
+Some parts of this project were developed with assistance from AI coding tools. 
 
 Here's how it works:
 
@@ -23,11 +25,11 @@ For SQL projects, `rest` reads SQL schemas, SQLC queries, and generated Go code,
 
 Required:
 
-- Go 1.24.3 or newer.
+- Go 1.25.11 or newer.
 
 Required for SQL projects:
 
-- [`sqlc`](https://github.com/sqlc-dev/sqlc): `go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest`.
+- [`sqlc`](https://github.com/sqlc-dev/sqlc): `go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0`.
 
 Required for running generated applications:
 
@@ -95,6 +97,11 @@ rest init
 # Set enable: enable and a valid sqlc_path in rest_config/rest_sqlc.yaml.
 rest gen
 ```
+```bash
+rest doctor
+#  At any stage, you're able to run this to see what is missing 
+#  and what the project needs before generation or runtime startup.
+```
 
 When `rest init` runs in an interactive terminal, it briefly checks whether a newer CLI release is available. If an update exists, it asks whether to install it first. Declining the update, running non-interactively, or having no network access does not block initialization.
 
@@ -124,7 +131,7 @@ go mod tidy
 Install SQLC with:
 
 ```bash
-go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0
 ```
 
 To run SQLC manually, set `auto_sqlc: disable` in `rest_config/rest.yaml`, execute `sqlc generate -f <sqlc_path>`, and then run `rest gen`.

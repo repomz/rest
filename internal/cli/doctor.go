@@ -214,7 +214,7 @@ func (d *doctorRunner) checkSQL() {
 	}
 	if d.bundle.Rest.AutoSQLC.Bool() {
 		if _, err := exec.LookPath("sqlc"); err != nil {
-			d.err("auto_sqlc is enabled but sqlc is not installed", "Install it with: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest")
+			d.err("auto_sqlc is enabled but sqlc is not installed", "Install it with: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0")
 		} else {
 			d.ok("sqlc binary is available")
 		}

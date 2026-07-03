@@ -26,7 +26,6 @@ db_connection:
 engine: sqlc                         # Currently supported: sqlc.
 sqlc:
   enable: disable                    # Enable the SQLC path during rest gen.
-  rest_sqlc_example: enable          # Built-in example marker; the mode is selected with rest init --example sql.
   # Path relative to rest_config or an absolute path.
   sqlc_path: ../rest_sqlc/rest_sqlc.yaml
 

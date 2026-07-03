@@ -43,7 +43,7 @@ func createGenerateBenchmarkProject(b *testing.B, tableCount int) (string, strin
 		}
 	}
 
-	writeBenchmarkFile(b, filepath.Join(root, "go.mod"), "module example.test/benchmark\n\ngo 1.24.3\n")
+	writeBenchmarkFile(b, filepath.Join(root, "go.mod"), "module example.test/benchmark\n\ngo 1.25.11\n")
 	sqlcConfig := `version: "2"
 sql:
   - engine: postgresql
@@ -159,7 +159,7 @@ func benchmarkGenerateOptions(projectDir, sqlcPath string) Options {
 				Enabled:            true,
 				Output:             "Dockerfile",
 				DockerignoreOutput: ".dockerignore",
-				BuildImage:         "golang:1.24-alpine",
+				BuildImage:         "golang:1.25-alpine",
 				RuntimeImage:       "alpine:3.21",
 				Binary:             "app",
 				Port:               8080,

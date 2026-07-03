@@ -305,7 +305,6 @@ func TestApplyEndpointAccessUsesConfiguredRoles(t *testing.T) {
 func minimalBundle() config.Bundle {
 	return config.Bundle{
 		Rest: config.Rest{
-			Language: "go",
 			HTTP: config.HTTP{
 				Framework:        "std",
 				Port:             8080,

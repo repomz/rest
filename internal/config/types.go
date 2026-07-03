@@ -4,9 +4,7 @@ type Rest struct {
 	Version       string              `yaml:"version"`
 	Module        string              `yaml:"module"`
 	ProjectPath   string              `yaml:"project_path"`
-	Language      string              `yaml:"language"`
 	GoVersion     string              `yaml:"go_version"`
-	Environment   string              `yaml:"environment"`
 	HTTP          HTTP                `yaml:"http"`
 	SQL           Enabled             `yaml:"sql"`
 	AutoSQLC      Enabled             `yaml:"auto_sqlc"`
@@ -202,7 +200,6 @@ type SQL struct {
 	Version         string       `yaml:"version"`
 	Database        string       `yaml:"database"`
 	Connection      DBConnection `yaml:"db_connection"`
-	ORM             Enabled      `yaml:"orm"`
 	Engine          string       `yaml:"engine"`
 	SQLC            SQLC         `yaml:"sqlc"`
 	InitMigration   Enabled      `yaml:"init_migration"`
@@ -211,16 +208,14 @@ type SQL struct {
 }
 type SQLC struct {
 	Enabled Enabled `yaml:"enable"`
-	Example Enabled `yaml:"rest_sqlc_example"`
 	Path    string  `yaml:"sqlc_path"`
 }
 type DBConnection struct {
-	DBName             string  `yaml:"db_name"`
-	UserName           string  `yaml:"user_name"`
-	UserPassword       string  `yaml:"user_password"`
-	LegacyUserPassword string  `yaml:"usere_password"`
-	PoolConnection     Enabled `yaml:"pool_connection"`
-	Options            string  `yaml:"options"`
+	DBName             string `yaml:"db_name"`
+	UserName           string `yaml:"user_name"`
+	UserPassword       string `yaml:"user_password"`
+	LegacyUserPassword string `yaml:"usere_password"`
+	Options            string `yaml:"options"`
 }
 type Bundle struct {
 	Dir   string
@@ -235,7 +230,6 @@ type Mongo struct {
 	Connection MongoConnection `yaml:"connection"`
 	Engine     string          `yaml:"engine"`
 	Mongo      MongoSettings   `yaml:"mongo"`
-	Generation MongoGeneration `yaml:"generation"`
 }
 
 type MongoConnection struct {
@@ -246,13 +240,6 @@ type MongoConnection struct {
 
 type MongoSettings struct {
 	ModelsPath string `yaml:"models_path"`
-}
-
-type MongoGeneration struct {
-	Package              string `yaml:"package"`
-	Output               string `yaml:"output"`
-	RepositoryOutput     string `yaml:"repository_output"`
-	CreateIndexesOnStart bool   `yaml:"create_indexes_on_start"`
 }
 
 type Auth struct {

@@ -2,8 +2,10 @@ BUILD_DIR ?= ./bin
 REST_BINARY ?= $(BUILD_DIR)/rest
 GO ?= go
 VERSION ?=
+GOIMPORTS ?= $(GO) run golang.org/x/tools/cmd/goimports
+GOVULNCHECK ?= $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.1.4
 
-.PHONY: build-rest test race vuln generated-examples golden docker-smoke runtime-e2e check ci-check benchmark clean setup hooks changelog release publish-release
+.PHONY: build-rest test race vuln generated-examples golden docker-smoke runtime-e2e format format-check check ci-check benchmark clean setup hooks changelog release publish-release
 
 build-rest:
 	@mkdir -p $(BUILD_DIR)
@@ -16,7 +18,7 @@ race:
 	$(GO) test -race ./...
 
 vuln:
-	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	$(GOVULNCHECK) ./...
 
 generated-examples:
 	$(GO) test ./internal/cli -run 'TestE2E'
@@ -30,8 +32,17 @@ docker-smoke:
 runtime-e2e:
 	REST_RUNTIME_E2E=1 $(GO) test ./internal/cli -run 'TestRuntimeE2E' -count=1 -timeout 6m
 
+format:
+	$(GOIMPORTS) -w .
+
+format-check:
+	@files="$$($(GOIMPORTS) -l .)"; \
+	status="$$?"; \
+	if [ "$$status" -ne 0 ]; then exit "$$status"; fi; \
+	test -z "$$files" || (echo "$$files" && exit 1)
+
 check:
-	@test -z "$$(gofmt -l .)" || (gofmt -l . && exit 1)
+	$(MAKE) format-check
 	$(GO) test ./...
 	$(GO) build -trimpath -o $(REST_BINARY) ./cmd/rest
 

@@ -117,7 +117,7 @@ func TestGenerateForMongoExampleEnablesMongoAndWritesActiveContract(t *testing.T
 
 func TestFutureFeatureConfigsAreValidContracts(t *testing.T) {
 	mongo := readEmbeddedYAMLMap(t, "mongo_rest.yaml")
-	for _, key := range []string{"version", "connection", "engine", "mongo", "generation"} {
+	for _, key := range []string{"version", "connection", "engine", "mongo"} {
 		requireMapKey(t, mongo, key)
 	}
 	mongoSettings := requireMapValue(t, mongo, "mongo")
@@ -128,7 +128,7 @@ func TestFutureFeatureConfigsAreValidContracts(t *testing.T) {
 	if _, exists := mongoSettings["enable"]; exists {
 		t.Fatal("mongo_rest.yaml must not duplicate rest.yaml mongo switch inside mongo.enable")
 	}
-	for _, removed := range []string{"driver", "hooks", "models", "indexes", "methods"} {
+	for _, removed := range []string{"driver", "hooks", "models", "indexes", "methods", "generation"} {
 		if _, exists := mongo[removed]; exists {
 			t.Fatalf("mongo_rest.yaml should not expose premature %q settings", removed)
 		}
@@ -534,7 +534,7 @@ func TestLoadFeatureSwitches(t *testing.T) {
 	if bundle.SQL == nil || bundle.SQL.SQLC.Path == "" {
 		t.Fatalf("sql config was not loaded: %+v", bundle.SQL)
 	}
-	if bundle.SQL.SQLC.Enabled.Bool() || !bundle.SQL.SQLC.Example.Bool() {
+	if bundle.SQL.SQLC.Enabled.Bool() {
 		t.Fatalf("unexpected canonical SQLC switches: %+v", bundle.SQL.SQLC)
 	}
 	if !bundle.Rest.HTTP.Middleware.Recovery.Enabled.Bool() || !bundle.Rest.HTTP.Middleware.CORS.Enabled.Bool() || !bundle.Rest.HTTP.Middleware.SecurityHeaders.Enabled.Bool() || !bundle.Rest.HTTP.Middleware.RateLimit.Enabled.Bool() {
