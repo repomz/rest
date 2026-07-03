@@ -32,7 +32,7 @@ Required for SQL projects:
 Required for running generated applications:
 
 - PostgreSQL for SQL projects.
-- MongoDB for Mongo projects.
+- MongoDB server for Mongo projects.
 
 Optional but recommended:
 

@@ -3,7 +3,6 @@ package generator
 import (
 	"bytes"
 	"fmt"
-	"go/format"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	"golang.org/x/tools/imports"
 )
 
 func renderFile(path, tmpl string, data renderData) error {
@@ -385,9 +386,14 @@ func renderTemplateBytes(path, tmpl string, data renderData) ([]byte, error) {
 	}
 	out := buf.Bytes()
 	if strings.HasSuffix(path, ".go") {
-		formatted, err := format.Source(out)
+		formatted, err := imports.Process(path, out, &imports.Options{
+			Comments:   true,
+			TabIndent:  true,
+			TabWidth:   8,
+			FormatOnly: false,
+		})
 		if err != nil {
-			return nil, fmt.Errorf("format %s: %w\n%s", path, err, out)
+			return nil, fmt.Errorf("format imports %s: %w\n%s", path, err, out)
 		}
 		out = formatted
 	}
