@@ -3,7 +3,7 @@ REST_BINARY ?= $(BUILD_DIR)/rest
 GO ?= go
 VERSION ?=
 GOIMPORTS ?= $(GO) run golang.org/x/tools/cmd/goimports
-GOVULNCHECK ?= $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.1.4
+GOVULNCHECK ?= $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.5.0
 
 .PHONY: build-rest test race vuln generated-examples golden docker-smoke runtime-e2e format format-check check ci-check benchmark clean setup hooks changelog release publish-release
 
