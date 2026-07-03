@@ -5,8 +5,8 @@
 </p>
 
 [![CI](https://github.com/repomz/rest/actions/workflows/ci.yml/badge.svg)](https://github.com/repomz/rest/actions/workflows/ci.yml)
-[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
-[![sqlc](https://img.shields.io/badge/sqlc-supported-5C6BC0)](https://sqlc.dev/)
+[![Go](https://img.shields.io/badge/Go-1.24.3+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![sqlc](https://img.shields.io/badge/sqlc-inspired-5C6BC0)](https://sqlc.dev/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 `rest` is a Go application generator inspired by [sqlc](https://github.com/sqlc-dev/sqlc). SQLC turns SQL into type-safe Go code; `rest` takes the next step and turns SQLC output or MongoDB contracts into a runnable REST application.
@@ -23,7 +23,7 @@ For SQL projects, `rest` reads SQL schemas, SQLC queries, and generated Go code,
 
 Required:
 
-- Go 1.24 or newer.
+- Go 1.24.3 or newer.
 
 Required for SQL projects:
 

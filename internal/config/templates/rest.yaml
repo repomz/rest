@@ -11,7 +11,7 @@
 version: "0.1.0"                     # rest config version; keep as generated unless migration docs say otherwise.
 module: github.com/repomz/myapp       # Replace with your Go module path, usually your repository URL for go.mod.
 project_path: .                       # Output directory for generated files; keep "." for the current project.
-go_version: "1.24.3"                 # Go version written to generated go.mod.
+go_version: "1.24.3"                 # Minimum Go version written to generated go.mod; later Go 1.x versions should work.
 
 # ------------------------------------------------------------------------------
 # HTTP SERVER
