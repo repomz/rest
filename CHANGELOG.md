@@ -3,6 +3,20 @@
 All notable changes to `rest` are generated from
 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## [v0.1.1] - 2026-07-05
+
+
+### Bug fixes
+
+
+- **generator:** Ignore runtime and generator-only files (`60f5c58`)
+
+
+### Features
+
+
+- **generator:** Generate app readme and architecture docs (`e5a4929`)
+
 ## [v0.1.0] - 2026-07-03
 
 
