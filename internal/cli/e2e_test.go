@@ -232,11 +232,13 @@ func TestE2EMongoGeneratesProjectSupportFilesWhenEnabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	patchFileForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"), map[string]string{
-		"  makefile:\n    enabled: false":  "  makefile:\n    enabled: true",
-		"  gitignore:\n    enabled: false": "  gitignore:\n    enabled: true",
-		"    generate_local_env: false":    "    generate_local_env: true",
-		"  ci:\n    enabled: false":        "  ci:\n    enabled: true",
-		"  cd:\n    enabled: false":        "  cd:\n    enabled: true",
+		"  makefile:\n    enabled: false":     "  makefile:\n    enabled: true",
+		"  gitignore:\n    enabled: false":    "  gitignore:\n    enabled: true",
+		"  readme:\n    enabled: false":       "  readme:\n    enabled: true",
+		"  architecture:\n    enabled: false": "  architecture:\n    enabled: true",
+		"    generate_local_env: false":       "    generate_local_env: true",
+		"  ci:\n    enabled: false":           "  ci:\n    enabled: true",
+		"  cd:\n    enabled: false":           "  cd:\n    enabled: true",
 	})
 	if err := run([]string{"gen"}); err != nil {
 		t.Fatal(err)
@@ -244,6 +246,8 @@ func TestE2EMongoGeneratesProjectSupportFilesWhenEnabled(t *testing.T) {
 	for _, path := range []string{
 		"Makefile",
 		".gitignore",
+		"README.md",
+		"ARCHITECTURE.md",
 		".env.example",
 		".env",
 		filepath.Join(".github", "workflows", "ci.yaml"),
@@ -259,6 +263,20 @@ func TestE2EMongoGeneratesProjectSupportFilesWhenEnabled(t *testing.T) {
 	}
 	if !strings.Contains(string(makefile), "MONGO_URI") || strings.Contains(string(makefile), "DB_DSN") {
 		t.Fatalf("Mongo Makefile must use Mongo settings only:\n%s", makefile)
+	}
+	readme, err := os.ReadFile(filepath.Join(projectDir, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(readme), "Backend: `mongo`") || !strings.Contains(string(readme), "rest doctor") {
+		t.Fatalf("generated README must describe current Mongo app workflow:\n%s", readme)
+	}
+	architecture, err := os.ReadFile(filepath.Join(projectDir, "ARCHITECTURE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(architecture), "mongorepo/") || !strings.Contains(string(architecture), "Request Flow") {
+		t.Fatalf("generated ARCHITECTURE.md must describe current Mongo architecture:\n%s", architecture)
 	}
 }
 

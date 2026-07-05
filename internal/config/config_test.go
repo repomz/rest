@@ -288,7 +288,7 @@ func TestRestConfigUsesOnlySupportedOptionalFeatures(t *testing.T) {
 			t.Fatalf("removed feature %q must not remain in rest.yaml", removed)
 		}
 	}
-	for _, key := range []string{"makefile", "gitignore", "env", "init_db", "deployment_guide", "ci", "cd"} {
+	for _, key := range []string{"makefile", "gitignore", "readme", "architecture", "env", "init_db", "deployment_guide", "ci", "cd"} {
 		section := requireMapValue(t, features, key)
 		if _, exists := section["enabled"]; !exists {
 			t.Fatalf("feature %q must have an explicit enabled switch", key)

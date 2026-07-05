@@ -129,6 +129,20 @@ func (MongoFeature) Generate(ctx Context) error {
 		}
 		files[output] = generator.BuildDeploymentGuideSource(mongoFeatureOptions(ctx, models))
 	}
+	if ctx.Config.Rest.Features.Architecture.Enabled.Bool() {
+		output := ctx.Config.Rest.Features.Architecture.Output
+		if output == "" {
+			output = "ARCHITECTURE.md"
+		}
+		files[output] = generator.BuildArchitectureSource(module, nil, features)
+	}
+	if ctx.Config.Rest.Features.Readme.Enabled.Bool() {
+		output := ctx.Config.Rest.Features.Readme.Output
+		if output == "" {
+			output = "README.md"
+		}
+		files[output] = generator.BuildReadmeSource(module, nil, features)
+	}
 	if ctx.Config.Rest.Features.CI.Enabled.Bool() {
 		output := ctx.Config.Rest.Features.CI.Output
 		if output == "" {
@@ -233,6 +247,10 @@ func mongoFeatureOptions(ctx Context, models []generator.MongoModel) generator.F
 			Gitignore:        ctx.Config.Rest.Features.Gitignore.Enabled.Bool(),
 			GitignorePath:    ctx.Config.Rest.Features.Gitignore.Output,
 			GitignoreAppend:  ctx.Config.Rest.Features.Gitignore.Append,
+			Readme:           ctx.Config.Rest.Features.Readme.Enabled.Bool(),
+			ReadmePath:       ctx.Config.Rest.Features.Readme.Output,
+			Architecture:     ctx.Config.Rest.Features.Architecture.Enabled.Bool(),
+			ArchitecturePath: ctx.Config.Rest.Features.Architecture.Output,
 			Env:              ctx.Config.Rest.Features.Env.Enabled.Bool(),
 			EnvPath:          ctx.Config.Rest.Features.Env.Output,
 			GenerateLocalEnv: ctx.Config.Rest.Features.Env.GenerateLocalEnv,

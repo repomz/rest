@@ -93,6 +93,12 @@ func Generate(opts Options) error {
 	if opts.Features.Build.DeploymentGuide {
 		files[defaultPath(opts.Features.Build.DeploymentPath, "DEPLOYMENT.md")] = BuildDeploymentGuideSource(opts.Features)
 	}
+	if opts.Features.Build.Architecture {
+		files[defaultPath(opts.Features.Build.ArchitecturePath, "ARCHITECTURE.md")] = BuildArchitectureSource(module, tables, opts.Features)
+	}
+	if opts.Features.Build.Readme {
+		files[defaultPath(opts.Features.Build.ReadmePath, "README.md")] = BuildReadmeSource(module, tables, opts.Features)
+	}
 	if opts.Features.Build.Env {
 		files[defaultPath(opts.Features.Build.EnvPath, ".env.example")] = envExampleTemplate
 		if opts.Features.Build.GenerateLocalEnv {
@@ -432,17 +438,38 @@ func defaultPath(path, fallback string) string {
 }
 
 func generatedOptionalPaths(features FeatureOptions) []string {
-	return []string{
-		defaultPath(features.Build.MakefilePath, "Makefile"),
-		defaultPath(features.Build.InitDBPath, "init_db.sh"),
-		defaultPath(features.Build.EnvPath, ".env.example"),
-		defaultPath(features.Build.DeploymentPath, "DEPLOYMENT.md"),
-		defaultPath(features.Build.CIPath, ".github/workflows/ci.yaml"),
-		defaultPath(features.Build.CDPath, ".github/workflows/cd.yaml"),
-		defaultPath(features.Docker.Output, "Dockerfile"),
-		defaultPath(features.Docker.DockerignoreOutput, ".dockerignore"),
-		defaultPath(features.Docker.ComposeOutput, "docker-compose.yml"),
+	var paths []string
+	if features.Build.Makefile {
+		paths = append(paths, defaultPath(features.Build.MakefilePath, "Makefile"))
 	}
+	if features.Build.InitDB {
+		paths = append(paths, defaultPath(features.Build.InitDBPath, "init_db.sh"))
+	}
+	if features.Build.Env {
+		paths = append(paths, defaultPath(features.Build.EnvPath, ".env.example"))
+	}
+	if features.Build.DeploymentGuide {
+		paths = append(paths, defaultPath(features.Build.DeploymentPath, "DEPLOYMENT.md"))
+	}
+	if features.Build.Architecture {
+		paths = append(paths, defaultPath(features.Build.ArchitecturePath, "ARCHITECTURE.md"))
+	}
+	if features.Build.Readme {
+		paths = append(paths, defaultPath(features.Build.ReadmePath, "README.md"))
+	}
+	if features.Build.CI {
+		paths = append(paths, defaultPath(features.Build.CIPath, ".github/workflows/ci.yaml"))
+	}
+	if features.Build.CD {
+		paths = append(paths, defaultPath(features.Build.CDPath, ".github/workflows/cd.yaml"))
+	}
+	if features.Docker.Enabled {
+		paths = append(paths, defaultPath(features.Docker.Output, "Dockerfile"), defaultPath(features.Docker.DockerignoreOutput, ".dockerignore"))
+	}
+	if features.Docker.Compose {
+		paths = append(paths, defaultPath(features.Docker.ComposeOutput, "docker-compose.yml"))
+	}
+	return paths
 }
 
 func BuildLoggingSource(features FeatureOptions) (string, error) {

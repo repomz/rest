@@ -175,6 +175,8 @@ type MetricCollection struct {
 type ApplicationFeatures struct {
 	Makefile        GeneratedFile    `yaml:"makefile"`
 	Gitignore       GitignoreFeature `yaml:"gitignore"`
+	Readme          GeneratedFile    `yaml:"readme"`
+	Architecture    GeneratedFile    `yaml:"architecture"`
 	Env             EnvFeature       `yaml:"env"`
 	InitDB          GeneratedFile    `yaml:"init_db"`
 	DeploymentGuide GeneratedFile    `yaml:"deployment_guide"`

@@ -71,6 +71,10 @@ type BuildFeatures struct {
 	Gitignore        bool
 	GitignorePath    string
 	GitignoreAppend  bool
+	Readme           bool
+	ReadmePath       string
+	Architecture     bool
+	ArchitecturePath string
 	Env              bool
 	EnvPath          string
 	GenerateLocalEnv bool

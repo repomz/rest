@@ -182,6 +182,12 @@ features:
     enabled: false                    # Generate or update .gitignore.
     output: .gitignore                # .gitignore path.
     append: true                     # true preserves user text outside the managed block.
+  readme:
+    enabled: false                    # Generate README.md for the generated application.
+    output: README.md                 # App README path; safe_reload protects user edits on regeneration.
+  architecture:
+    enabled: false                    # Generate ARCHITECTURE.md with a CLI-style map of the current app layout.
+    output: ARCHITECTURE.md           # Architecture document path; updated on every rest gen when enabled.
   env:
     enabled: false                    # Generate an env example file for local runs.
     output: .env.example              # Env example output path.
