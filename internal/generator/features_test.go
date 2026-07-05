@@ -25,6 +25,43 @@ func TestGeneratedGitignoreSectionCanBeRemovedWithoutTouchingCustomContent(t *te
 	}
 }
 
+func TestBuildGitignoreSourceIgnoresRuntimeAndGeneratorOnlyFiles(t *testing.T) {
+	content, err := BuildGitignoreSource(FeatureOptions{
+		Build: BuildFeatures{DeploymentPath: "docs/RUNBOOK.md"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"bin/",
+		"coverage.out",
+		".env",
+		"!.env.example",
+		"logs/",
+		"docker-compose.override.yml",
+		".rest/",
+		"rest_config/",
+		"rest_sqlc/",
+		"rest_sqlc_example/",
+		"docs/RUNBOOK.md",
+		".DS_Store",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf(".gitignore does not contain %q:\n%s", expected, content)
+		}
+	}
+	for _, unexpected := range []string{
+		"internal/",
+		"api/",
+		"Dockerfile",
+		"Makefile",
+	} {
+		if strings.Contains(content, unexpected) {
+			t.Fatalf(".gitignore must not hide generated app source %q:\n%s", unexpected, content)
+		}
+	}
+}
+
 func TestRemoveGeneratedEnvPreservesUserFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env")
 	if err := os.WriteFile(path, []byte("CUSTOM=value\n"), 0o644); err != nil {

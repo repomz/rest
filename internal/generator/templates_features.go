@@ -280,13 +280,41 @@ volumes:
 `
 
 const gitignoreTemplate = `# rest:begin
+# Build and test output
 bin/
+dist/
 .cache/
-.rest/
+coverage/
+coverage.out
+coverage.html
+*.test
+*.out
+
+# Local runtime files and secrets
 .env
+.env.*
+!.env.example
+*.local
+
+# Logs and temporary files
 logs/
 *.log
+tmp/
+
+# Docker/local overrides
+docker-compose.override.yml
+
+# rest generator workspace files not required by the generated runtime app
+.rest/
+rest_config/
+rest_sqlc/
+rest_sqlc_example/
+{{ defaultString .Features.Build.DeploymentPath "DEPLOYMENT.md" }}
+
+# OS/editor noise
 .DS_Store
+.idea/
+.vscode/
 # rest:end
 `
 
