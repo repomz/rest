@@ -194,6 +194,11 @@ func BuildReadmeSource(module string, tables []table, features FeatureOptions) s
 	if features.Docker.Compose {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "Run with Docker Compose:")
+		if backend == "sql" {
+			fmt.Fprintln(&b, "The one-shot `migrate` service applies pending migrations before the application starts.")
+		} else {
+			fmt.Fprintln(&b, "The one-shot `mongo-init` service prepares application credentials before the application starts.")
+		}
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "```bash")
 		fmt.Fprintf(&b, "docker compose -f %s up --build\n", defaultString(features.Docker.ComposeOutput, "docker-compose.yml"))

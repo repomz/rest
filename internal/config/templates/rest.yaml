@@ -132,7 +132,7 @@ docker:
   output: Dockerfile                  # Dockerfile path.
   dockerignore_output: .dockerignore  # .dockerignore path.
   compose:
-    enabled: false                    # true/enable creates docker-compose.yml for the selected backend.
+    enabled: false                    # Generate a ready stack: DB init/migrations complete before the app starts.
     output: docker-compose.yml        # Docker Compose file path.
   build_image: golang:1.25-alpine     # Builder image used by Dockerfile.
   runtime_image: alpine:3.21          # Small runtime image used by Dockerfile.
@@ -193,7 +193,7 @@ features:
     output: .env.example              # Env example output path.
     generate_local_env: false        # true also creates .env with the same values.
   init_db:
-    enabled: false                    # Generate an executable helper that creates and verifies the selected local database.
+    enabled: false                    # Generate an idempotent standalone local DB initializer; Compose does not require it.
     output: init_db.sh                # PostgreSQL also applies generated Up migrations; Mongo creates its application user.
   deployment_guide:
     enabled: false                    # Generate DEPLOYMENT.md tailored to this app.

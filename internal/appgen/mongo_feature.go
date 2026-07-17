@@ -1814,6 +1814,17 @@ func mongoDockerfileSource(ctx Context) string {
 	if ctx.Config.Rest.Docker.CGOEnabled {
 		cgo = "1"
 	}
+	healthcheck := ""
+	if ctx.Config.Rest.Docker.Healthcheck.Enabled.Bool() {
+		healthcheck = fmt.Sprintf(
+			"HEALTHCHECK --interval=%s --timeout=%s --retries=%d CMD wget -qO- http://127.0.0.1:%d%s || exit 1\n",
+			ctx.Config.Rest.Docker.Healthcheck.Interval,
+			ctx.Config.Rest.Docker.Healthcheck.Timeout,
+			ctx.Config.Rest.Docker.Healthcheck.Retries,
+			ctx.Config.Rest.HTTP.Port,
+			routePath(ctx.Config.Rest.HTTP.BasePath, ctx.Config.Rest.Docker.Healthcheck.Path),
+		)
+	}
 	return fmt.Sprintf(`FROM %s AS build
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -1827,8 +1838,9 @@ WORKDIR /app
 COPY --from=build /out/%s /app/%s
 EXPOSE %d
 USER %s
+%s
 ENTRYPOINT ["/app/%s"]
-`, ctx.Config.Rest.Docker.BuildImage, cgo, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.Docker.RuntimeImage, ctx.Config.Rest.Docker.User, ctx.Config.Rest.Docker.User, ctx.Config.Rest.Docker.User, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.HTTP.Port, ctx.Config.Rest.Docker.User, ctx.Config.Rest.Docker.Binary)
+`, ctx.Config.Rest.Docker.BuildImage, cgo, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.Docker.RuntimeImage, ctx.Config.Rest.Docker.User, ctx.Config.Rest.Docker.User, ctx.Config.Rest.Docker.User, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.HTTP.Port, ctx.Config.Rest.Docker.User, strings.TrimSuffix(healthcheck, "\n"), ctx.Config.Rest.Docker.Binary)
 }
 
 func mongoDockerignoreSource() string {

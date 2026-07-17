@@ -79,6 +79,56 @@ func TestE2ESQLGeneratesExecutableDatabaseInitializer(t *testing.T) {
 	}
 }
 
+func TestE2ESQLGeneratesComposeMigrationGateWhenEnabled(t *testing.T) {
+	projectDir := filepath.Join(t.TempDir(), "sql-compose-app")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withWorkingDir(t, projectDir)
+	if err := run([]string{"init"}); err != nil {
+		t.Fatal(err)
+	}
+	patchE2ERestConfig(t, filepath.Join(projectDir, "rest_config", "rest.yaml"))
+	patchFileForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"), map[string]string{
+		"    enabled: false                    # Generate a ready stack: DB init/migrations complete before the app starts.": "    enabled: true                     # Generate a ready stack: DB init/migrations complete before the app starts.",
+	})
+	writeE2ESQLCInputs(t, projectDir)
+	writeE2ESQLCOutput(t, projectDir)
+	if err := run([]string{"gen"}); err != nil {
+		t.Fatal(err)
+	}
+
+	compose, err := os.ReadFile(filepath.Join(projectDir, "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"migrate:",
+		"condition: service_completed_successfully",
+		"./docker/migrate.sh:/usr/local/bin/rest-migrate.sh:ro",
+		"./internal/sql/migrations:/migrations:ro",
+	} {
+		if !strings.Contains(string(compose), expected) {
+			t.Fatalf("SQL compose missing %q:\n%s", expected, compose)
+		}
+	}
+
+	migratePath := filepath.Join(projectDir, "docker", "migrate.sh")
+	migrate, err := os.ReadFile(migratePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(migrate), "rest_schema_migrations") {
+		t.Fatalf("generated Docker migration runner is incomplete:\n%s", migrate)
+	}
+	if output, err := exec.Command("sh", "-n", migratePath).CombinedOutput(); err != nil {
+		t.Fatalf("generated Docker migration runner is invalid: %v\n%s", err, output)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "internal", "sql", "migrations", "00001_rest_init.sql")); err != nil {
+		t.Fatalf("expected initial migration for Compose: %v", err)
+	}
+}
+
 func TestE2EInitMongoExampleGenerateAndTestGeneratedProject(t *testing.T) {
 	projectDir := generateE2EMongoProject(t)
 	assertDoctorHealthy(t)
@@ -227,7 +277,7 @@ func TestE2EInitMongoExampleGeneratesComposeWhenEnabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	patchFileForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"), map[string]string{
-		"    enabled: false                    # true/enable creates docker-compose.yml for the selected backend.": "    enabled: true                     # true/enable creates docker-compose.yml for the selected backend.",
+		"    enabled: false                    # Generate a ready stack: DB init/migrations complete before the app starts.": "    enabled: true                     # Generate a ready stack: DB init/migrations complete before the app starts.",
 	})
 	if err := run([]string{"gen"}); err != nil {
 		t.Fatal(err)

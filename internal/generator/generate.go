@@ -110,6 +110,7 @@ func Generate(opts Options) error {
 		files[defaultPath(opts.Features.Docker.DockerignoreOutput, ".dockerignore")] = dockerignoreTemplate
 		if opts.Features.Docker.Compose {
 			files[defaultPath(opts.Features.Docker.ComposeOutput, "docker-compose.yml")] = dockerComposeTemplate
+			files["docker/migrate.sh"] = dockerMigrateTemplate
 		}
 	}
 	if opts.Features.HTTP.CORS || opts.Features.HTTP.Recovery || opts.Features.HTTP.RequestID || opts.Features.HTTP.SecurityHeaders || opts.Features.HTTP.RateLimit || opts.Features.HTTP.MaxBodyBytes > 0 {
@@ -467,7 +468,7 @@ func generatedOptionalPaths(features FeatureOptions) []string {
 		paths = append(paths, defaultPath(features.Docker.Output, "Dockerfile"), defaultPath(features.Docker.DockerignoreOutput, ".dockerignore"))
 	}
 	if features.Docker.Compose {
-		paths = append(paths, defaultPath(features.Docker.ComposeOutput, "docker-compose.yml"))
+		paths = append(paths, defaultPath(features.Docker.ComposeOutput, "docker-compose.yml"), "docker/migrate.sh")
 	}
 	return paths
 }

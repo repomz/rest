@@ -283,13 +283,53 @@ func TestDockerComposeTemplateIncludesAppAndPostgres(t *testing.T) {
 	for _, expected := range []string{
 		"services:",
 		"app:",
+		"migrate:",
 		"postgres:",
 		`DB_DSN: "postgres://app_user:app_password@postgres:5432/myapp_db?sslmode=disable"`,
+		"condition: service_completed_successfully",
+		"./docker/migrate.sh:/usr/local/bin/rest-migrate.sh:ro",
+		"./internal/sql/migrations:/migrations:ro",
 		"pg_isready -U app_user -d myapp_db",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("docker compose template missing %q:\n%s", expected, text)
 		}
+	}
+}
+
+func TestDockerMigrationScriptIsPOSIXShellAndFailsWithoutMigrations(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "migrate.sh")
+	if err := os.WriteFile(path, []byte(dockerMigrateTemplate), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("sh", "-n", path).CombinedOutput(); err != nil {
+		t.Fatalf("sh -n failed: %v\n%s", err, output)
+	}
+	for _, expected := range []string{
+		"rest_schema_migrations",
+		"Applying migration:",
+		"no SQL migrations found",
+		"PostgreSQL migrations are up to date",
+	} {
+		if !strings.Contains(dockerMigrateTemplate, expected) {
+			t.Fatalf("docker migration script missing %q:\n%s", expected, dockerMigrateTemplate)
+		}
+	}
+}
+
+func TestDockerComposeEscapesPostgresCredentialsInDSN(t *testing.T) {
+	data := renderData{Features: FeatureOptions{
+		Build: BuildFeatures{
+			DBName: "myapp_db", DBUser: "app_user", DBPassword: "p@ss:word", DBOptions: "sslmode=disable",
+		},
+		Docker: DockerFeatures{Output: "Dockerfile", Port: 8080},
+	}}
+	rendered, err := renderTemplateForTest(t, "docker-compose.yml", dockerComposeTemplate, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rendered), `DB_DSN: "postgres://app_user:p%40ss%3Aword@postgres:5432/myapp_db?sslmode=disable"`) {
+		t.Fatalf("Docker Compose DSN does not URL-escape credentials:\n%s", rendered)
 	}
 }
 

@@ -141,6 +141,11 @@ func BuildDeploymentGuideSource(features FeatureOptions) string {
 	if features.Docker.Compose {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "For a local container smoke test:")
+		if backend == "sql" {
+			fmt.Fprintln(&b, "Compose waits for PostgreSQL, applies pending migrations in the one-shot `migrate` service, and only then starts the application.")
+		} else {
+			fmt.Fprintln(&b, "Compose waits for MongoDB and completes the one-shot `mongo-init` credential setup before starting the application.")
+		}
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "```bash")
 		fmt.Fprintf(&b, "docker compose -f %s up --build\n", defaultString(features.Docker.ComposeOutput, "docker-compose.yml"))

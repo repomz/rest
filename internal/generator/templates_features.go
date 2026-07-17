@@ -211,7 +211,7 @@ func (w *responseRecorder) Write(data []byte) (int, error) {
 
 const dockerfileTemplate = `FROM {{ .Features.Docker.BuildImage }} AS build
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED={{ if .Features.Docker.CGOEnabled }}1{{ else }}0{{ end }} go build -trimpath -ldflags="-s -w" -o /out/{{ .Features.Docker.Binary }} ./cmd
@@ -245,7 +245,7 @@ const dockerComposeTemplate = `services:
       dockerfile: {{ defaultString .Features.Docker.Output "Dockerfile" }}
     environment:
       HTTP_ADDR: 0.0.0.0:{{ .Features.Docker.Port }}
-      DB_DSN: "postgres://{{ defaultString .Features.Build.DBUser "app_user" }}:{{ defaultString .Features.Build.DBPassword "app_password" }}@postgres:5432/{{ defaultString .Features.Build.DBName "app_db" }}?{{ defaultString .Features.Build.DBOptions "sslmode=disable" }}"
+      DB_DSN: {{ printf "%q" (postgresDSN .Features.Build "postgres:5432") }}
 {{- if and .Features.Auth.Enabled (eq .Features.Auth.Strategy "jwt") }}
       {{ .Features.Auth.JWTSecretEnv }}: change-me
 {{- end }}
@@ -256,15 +256,33 @@ const dockerComposeTemplate = `services:
     ports:
       - "{{ .Features.Docker.Port }}:{{ .Features.Docker.Port }}"
     depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  migrate:
+    image: postgres:17-alpine
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: {{ printf "%q" (defaultString .Features.Build.DBName "app_db") }}
+      PGUSER: {{ printf "%q" (defaultString .Features.Build.DBUser "app_user") }}
+      PGPASSWORD: {{ printf "%q" (defaultString .Features.Build.DBPassword "app_password") }}
+      MIGRATIONS_DIR: /migrations
+    volumes:
+      - ./docker/migrate.sh:/usr/local/bin/rest-migrate.sh:ro
+      - ./{{ defaultString .Features.Build.MigrationsPath "internal/sql/migrations" }}:/migrations:ro
+    depends_on:
       postgres:
         condition: service_healthy
+    entrypoint: ["/bin/sh", "/usr/local/bin/rest-migrate.sh"]
+    restart: "no"
 
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: {{ defaultString .Features.Build.DBName "app_db" }}
-      POSTGRES_USER: {{ defaultString .Features.Build.DBUser "app_user" }}
-      POSTGRES_PASSWORD: {{ defaultString .Features.Build.DBPassword "app_password" }}
+      POSTGRES_DB: {{ printf "%q" (defaultString .Features.Build.DBName "app_db") }}
+      POSTGRES_USER: {{ printf "%q" (defaultString .Features.Build.DBUser "app_user") }}
+      POSTGRES_PASSWORD: {{ printf "%q" (defaultString .Features.Build.DBPassword "app_password") }}
     ports:
       - "5432:5432"
     volumes:
@@ -277,6 +295,95 @@ const dockerComposeTemplate = `services:
 
 volumes:
   postgres_data:
+`
+
+const dockerMigrateTemplate = `#!/bin/sh
+set -eu
+
+: "${PGHOST:=postgres}"
+: "${PGPORT:=5432}"
+: "${PGDATABASE:=app_db}"
+: "${PGUSER:=app_user}"
+: "${MIGRATIONS_DIR:=/migrations}"
+
+psql_app() {
+	psql \
+		--host "$PGHOST" \
+		--port "$PGPORT" \
+		--username "$PGUSER" \
+		--dbname "$PGDATABASE" \
+		-v ON_ERROR_STOP=1 \
+		"$@"
+}
+
+sql_literal() {
+	escaped=$(printf '%s' "$1" | sed "s/'/''/g")
+	printf "'%s'" "$escaped"
+}
+
+echo "Waiting for PostgreSQL at $PGHOST:$PGPORT..."
+ready=0
+attempt=1
+while [ "$attempt" -le 60 ]; do
+	if pg_isready --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" --dbname "$PGDATABASE" >/dev/null 2>&1; then
+		ready=1
+		break
+	fi
+	attempt=$((attempt + 1))
+	sleep 1
+done
+if [ "$ready" != "1" ]; then
+	echo "Error: PostgreSQL did not become ready within 60 seconds." >&2
+	exit 1
+fi
+
+if [ ! -d "$MIGRATIONS_DIR" ]; then
+	echo "Error: migrations directory '$MIGRATIONS_DIR' does not exist." >&2
+	exit 1
+fi
+
+psql_app <<'SQL'
+CREATE TABLE IF NOT EXISTS public.rest_schema_migrations (
+	version text PRIMARY KEY,
+	applied_at timestamptz NOT NULL DEFAULT now()
+);
+SQL
+
+found=0
+for migration in "$MIGRATIONS_DIR"/*.sql; do
+	if [ ! -f "$migration" ]; then
+		continue
+	fi
+	found=1
+	version=$(basename "$migration")
+	version_literal=$(sql_literal "$version")
+	applied=$(psql_app -tAc "SELECT 1 FROM public.rest_schema_migrations WHERE version = $version_literal" | tr -d '[:space:]')
+	if [ "$applied" = "1" ]; then
+		echo "Already applied: $version"
+		continue
+	fi
+
+	echo "Applying migration: $version"
+	{
+		printf 'BEGIN;\n'
+		awk '
+			/^--[[:space:]]+\+goose[[:space:]]+Up/ { up=1; next }
+			/^--[[:space:]]+\+goose[[:space:]]+Down/ { up=0 }
+			up { print }
+		' "$migration"
+		printf '\nINSERT INTO public.rest_schema_migrations (version) VALUES (%s);\n' "$version_literal"
+		printf 'COMMIT;\n'
+	} | psql_app
+done
+
+if [ "$found" != "1" ]; then
+	echo "Error: no SQL migrations found in '$MIGRATIONS_DIR'." >&2
+	echo "Enable rest_sqlc.yaml init_migration or add a migration before starting Compose." >&2
+	exit 1
+fi
+
+psql_app -tAc "SELECT 1" >/dev/null
+echo "PostgreSQL migrations are up to date."
 `
 
 const gitignoreTemplate = `# rest:begin

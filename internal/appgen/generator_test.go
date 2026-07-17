@@ -30,6 +30,34 @@ func TestValidateConfigRejectsSQLAndMongoTogether(t *testing.T) {
 	}
 }
 
+func TestMongoDockerfileIncludesConfiguredHealthcheck(t *testing.T) {
+	ctx := Context{Config: config.Bundle{Rest: config.Rest{
+		HTTP: config.HTTP{
+			Port:     8080,
+			BasePath: "/api",
+		},
+		Docker: config.Docker{
+			BuildImage:   "golang:1.25-alpine",
+			RuntimeImage: "alpine:3.21",
+			Binary:       "app",
+			User:         "app",
+			Healthcheck: config.DockerHealthcheck{
+				Enabled:  config.Enabled(true),
+				Path:     "/health",
+				Interval: "30s",
+				Timeout:  "3s",
+				Retries:  3,
+			},
+		},
+	}}}
+
+	source := mongoDockerfileSource(ctx)
+	expected := "HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD wget -qO- http://127.0.0.1:8080/api/health || exit 1"
+	if !strings.Contains(source, expected) {
+		t.Fatalf("Mongo Dockerfile missing configured healthcheck %q:\n%s", expected, source)
+	}
+}
+
 func TestValidateConfigRequiresBackendForDatabaseInitializer(t *testing.T) {
 	bundle := minimalBundle()
 	bundle.Rest.Features.InitDB = config.GeneratedFile{Enabled: config.Enabled(true), Output: "init_db.sh"}
