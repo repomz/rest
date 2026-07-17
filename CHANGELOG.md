@@ -3,6 +3,26 @@
 All notable changes to `rest` are generated from
 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## [v0.1.2] - 2026-07-17
+
+
+### Bug fixes
+
+
+- **ci:** Upgrade Go to 1.25.12 for vulnerability fix (`a7d34d0`)
+
+
+### Features
+
+
+- **database:** Generate working PostgreSQL and MongoDB initializers (`cdaa833`)
+
+
+- **toolchain:** Install compatible sqlc automatically (`985f8f2`)
+
+
+- **docker:** Add production-ready database initialization flow (`555ebe2`)
+
 ## [v0.1.1] - 2026-07-05
 
 
