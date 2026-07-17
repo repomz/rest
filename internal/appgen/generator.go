@@ -401,7 +401,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/lib/pq v1.12.3
 )
-`, ctx.Config.Rest.Module, defaultValue(ctx.Config.Rest.GoVersion, "1.25.11"))
+`, ctx.Config.Rest.Module, defaultValue(ctx.Config.Rest.GoVersion, "1.25.12"))
 	if err := os.WriteFile(goMod, []byte(content), 0o644); err != nil {
 		return err
 	}

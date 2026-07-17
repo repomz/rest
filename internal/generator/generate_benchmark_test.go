@@ -43,7 +43,7 @@ func createGenerateBenchmarkProject(b *testing.B, tableCount int) (string, strin
 		}
 	}
 
-	writeBenchmarkFile(b, filepath.Join(root, "go.mod"), "module example.test/benchmark\n\ngo 1.25.11\n")
+	writeBenchmarkFile(b, filepath.Join(root, "go.mod"), "module example.test/benchmark\n\ngo 1.25.12\n")
 	sqlcConfig := `version: "2"
 sql:
   - engine: postgresql

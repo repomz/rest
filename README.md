@@ -5,7 +5,7 @@
 </p>
 
 [![CI](https://github.com/repomz/rest/actions/workflows/ci.yml/badge.svg)](https://github.com/repomz/rest/actions/workflows/ci.yml)
-[![Go](https://img.shields.io/badge/Go-1.25.11+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.25.12+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![sqlc](https://img.shields.io/badge/sqlc-inspired-5C6BC0)](https://sqlc.dev/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
@@ -25,7 +25,7 @@ For SQL projects, `rest` reads SQL schemas, SQLC queries, and generated Go code,
 
 Required:
 
-- Go 1.25.11 or newer.
+- Go 1.25.12 or newer.
 
 Required for SQL projects:
 

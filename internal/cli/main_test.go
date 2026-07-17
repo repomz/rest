@@ -298,7 +298,7 @@ func TestRunInitModes(t *testing.T) {
 func TestRunInitUsesExistingSQLCConfig(t *testing.T) {
 	dir := t.TempDir()
 	withWorkingDir(t, dir)
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.test/existing\n\ngo 1.25.11\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.test/existing\n\ngo 1.25.12\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "sqlc.yaml"), []byte("version: \"2\"\nsql: []\n"), 0o644); err != nil {

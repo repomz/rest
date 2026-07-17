@@ -587,7 +587,7 @@ jobs:
       fail-fast: false
       matrix:
         go-version:
-          - "1.25.11"
+          - "1.25.12"
           - "stable"
     steps:
       - name: Checkout

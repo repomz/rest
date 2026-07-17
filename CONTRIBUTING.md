@@ -4,7 +4,7 @@ Thanks for considering a contribution. `rest` is a Go CLI that generates layered
 
 ## Local setup
 
-Install Go 1.25.11 or newer, then prepare the repository:
+Install Go 1.25.12 or newer, then prepare the repository:
 
 ```bash
 make setup
