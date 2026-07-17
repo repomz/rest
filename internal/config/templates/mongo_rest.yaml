@@ -11,6 +11,8 @@ version: "0.1.0"
 connection:
   uri_env: MONGO_URI                 # Environment variable containing the MongoDB URI.
   database: myapp_db                 # Application database.
+  user_name: app_user                # Local application user created by init_db.sh; override in production secrets.
+  user_password: app_password        # Local-only password used by generated helpers; never use it in production.
   timeout: 10s                       # Shared timeout for connection and operations.
 
 # ------------------------------------------------------------------------------

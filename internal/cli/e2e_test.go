@@ -31,6 +31,54 @@ func TestE2EInitSQLCGenerateAndTestGeneratedProject(t *testing.T) {
 	runGeneratedGoTest(t, projectDir)
 }
 
+func TestE2ESQLGeneratesExecutableDatabaseInitializer(t *testing.T) {
+	projectDir := filepath.Join(t.TempDir(), "sql-init-db-app")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withWorkingDir(t, projectDir)
+	if err := run([]string{"init"}); err != nil {
+		t.Fatal(err)
+	}
+	patchE2ERestConfig(t, filepath.Join(projectDir, "rest_config", "rest.yaml"))
+	patchFileForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"), map[string]string{
+		"  init_db:\n    enabled: false": "  init_db:\n    enabled: true",
+	})
+	writeE2ESQLCInputs(t, projectDir)
+	writeE2ESQLCOutput(t, projectDir)
+	if err := run([]string{"gen"}); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(projectDir, "init_db.sh")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("SQL init_db.sh is not executable: %s", info.Mode())
+	}
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"CREATE DATABASE", "rest_schema_migrations", `awk '/^--`, `"${PSQL_APP[@]}" -tAc "SELECT 1"`} {
+		if !strings.Contains(string(source), expected) {
+			t.Fatalf("SQL init_db.sh missing %q:\n%s", expected, source)
+		}
+	}
+	if output, err := exec.Command("bash", "-n", path).CombinedOutput(); err != nil {
+		t.Fatalf("generated SQL init_db.sh is invalid: %v\n%s", err, output)
+	}
+	configSource, err := os.ReadFile(filepath.Join(projectDir, "internal", "app", "config", "config.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(configSource), `postgres://app_user:app_password@localhost:5432/myapp_db?sslmode=disable`) {
+		t.Fatalf("SQL runtime fallback DSN does not match generated local credentials:\n%s", configSource)
+	}
+}
+
 func TestE2EInitMongoExampleGenerateAndTestGeneratedProject(t *testing.T) {
 	projectDir := generateE2EMongoProject(t)
 	assertDoctorHealthy(t)
@@ -49,6 +97,20 @@ func TestE2EInitMongoExampleGenerateAndTestGeneratedProject(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(projectDir, path)); err != nil {
 			t.Fatalf("expected generated Mongo example file %s: %v", path, err)
 		}
+	}
+	mainSource, err := os.ReadFile(filepath.Join(projectDir, "cmd", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mainSource), `mongodb://app_user:app_password@localhost:27017/myapp_db?authSource=myapp_db`) {
+		t.Fatalf("Mongo runtime fallback URI does not match generated local credentials:\n%s", mainSource)
+	}
+	dockerfile, err := os.ReadFile(filepath.Join(projectDir, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dockerfile), "adduser -S app -G app") {
+		t.Fatalf("Mongo runtime image does not create its non-root user:\n%s", dockerfile)
 	}
 	swagger, err := os.ReadFile(filepath.Join(projectDir, "docs", "swagger.yaml"))
 	if err != nil {
@@ -174,7 +236,13 @@ func TestE2EInitMongoExampleGeneratesComposeWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected docker-compose.yml: %v", err)
 	}
-	for _, expected := range []string{"mongo:7", "MONGO_URI: mongodb://mongo:27017", "mongo_data:"} {
+	for _, expected := range []string{
+		"mongo:7",
+		`MONGO_URI: "mongodb://app_user:app_password@mongo:27017/myapp_db?authSource=myapp_db"`,
+		"mongo-init:",
+		`role: "readWrite"`,
+		"mongo_data:",
+	} {
 		if !strings.Contains(string(compose), expected) {
 			t.Fatalf("Mongo compose missing %q:\n%s", expected, compose)
 		}
@@ -237,6 +305,7 @@ func TestE2EMongoGeneratesProjectSupportFilesWhenEnabled(t *testing.T) {
 		"  readme:\n    enabled: false":       "  readme:\n    enabled: true",
 		"  architecture:\n    enabled: false": "  architecture:\n    enabled: true",
 		"    generate_local_env: false":       "    generate_local_env: true",
+		"  init_db:\n    enabled: false":      "  init_db:\n    enabled: true",
 		"  ci:\n    enabled: false":           "  ci:\n    enabled: true",
 		"  cd:\n    enabled: false":           "  cd:\n    enabled: true",
 	})
@@ -250,6 +319,7 @@ func TestE2EMongoGeneratesProjectSupportFilesWhenEnabled(t *testing.T) {
 		"ARCHITECTURE.md",
 		".env.example",
 		".env",
+		"init_db.sh",
 		filepath.Join(".github", "workflows", "ci.yaml"),
 		filepath.Join(".github", "workflows", "cd.yaml"),
 	} {
@@ -263,6 +333,26 @@ func TestE2EMongoGeneratesProjectSupportFilesWhenEnabled(t *testing.T) {
 	}
 	if !strings.Contains(string(makefile), "MONGO_URI") || strings.Contains(string(makefile), "DB_DSN") {
 		t.Fatalf("Mongo Makefile must use Mongo settings only:\n%s", makefile)
+	}
+	if !strings.Contains(string(makefile), "db:") || !strings.Contains(string(makefile), "init_db.sh") {
+		t.Fatalf("Mongo Makefile must expose the generated database helper:\n%s", makefile)
+	}
+	initDBPath := filepath.Join(projectDir, "init_db.sh")
+	info, err := os.Stat(initDBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("Mongo init_db.sh is not executable: %s", info.Mode())
+	}
+	initDB, err := os.ReadFile(initDBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"applicationDB.createUser", `role: "readWrite"`, "--authenticationDatabase \"$MONGO_DB\""} {
+		if !strings.Contains(string(initDB), expected) {
+			t.Fatalf("Mongo init_db.sh missing %q:\n%s", expected, initDB)
+		}
 	}
 	readme, err := os.ReadFile(filepath.Join(projectDir, "README.md"))
 	if err != nil {

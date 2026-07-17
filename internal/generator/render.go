@@ -3,6 +3,7 @@ package generator
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -35,6 +36,19 @@ func renderTemplateBytes(path, tmpl string, data renderData) ([]byte, error) {
 	var buf bytes.Buffer
 	funcs := template.FuncMap{
 		"lower": strings.ToLower,
+		"postgresDSN": func(build BuildFeatures, host string) string {
+			database := defaultString(build.DBName, "app_db")
+			user := defaultString(build.DBUser, "app_user")
+			password := defaultString(build.DBPassword, "app_password")
+			dsn := &url.URL{
+				Scheme: "postgres",
+				User:   url.UserPassword(user, password),
+				Host:   host,
+				Path:   "/" + database,
+			}
+			dsn.RawQuery = defaultString(build.DBOptions, "sslmode=disable")
+			return dsn.String()
+		},
 		"authHandler": func(auth AuthFeatures, basePath, method, path, handler string) string {
 			if !auth.Enabled {
 				return handler

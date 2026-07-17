@@ -488,6 +488,14 @@ func BuildMetricsSource(features FeatureOptions) (string, error) {
 	return string(out), nil
 }
 
+func BuildInitDBSource(features FeatureOptions) (string, error) {
+	out, err := renderTemplateBytes(defaultPath(features.Build.InitDBPath, "init_db.sh"), initDBTemplate, renderData{Features: features})
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 func BuildGitignoreSource(features FeatureOptions) (string, error) {
 	out, err := renderTemplateBytes(defaultPath(features.Build.GitignorePath, ".gitignore"), gitignoreTemplate, renderData{Features: features})
 	if err != nil {

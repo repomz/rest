@@ -135,10 +135,13 @@ func Read() Config {
 
 	cfg := Config{
 		HTTPAddr: {{ printf "%q" (httpAddr .Features.HTTP.Host .Features.HTTP.Port) }},
-		DB_DSN:   os.Getenv("DB_DSN"),
+		DB_DSN:   {{ printf "%q" (postgresDSN .Features.Build "localhost:5432") }},
 	}
 	if httpAddr := os.Getenv("HTTP_ADDR"); httpAddr != "" {
 		cfg.HTTPAddr = httpAddr
+	}
+	if dsn := os.Getenv("DB_DSN"); dsn != "" {
+		cfg.DB_DSN = dsn
 	}
 	return cfg
 }

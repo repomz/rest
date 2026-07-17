@@ -193,8 +193,8 @@ features:
     output: .env.example              # Env example output path.
     generate_local_env: false        # true also creates .env with the same values.
   init_db:
-    enabled: false                    # Generate PostgreSQL init_db.sh helper; SQL apps only.
-    output: init_db.sh               # Generated as an executable file.
+    enabled: false                    # Generate an executable helper that creates and verifies the selected local database.
+    output: init_db.sh                # PostgreSQL also applies generated Up migrations; Mongo creates its application user.
   deployment_guide:
     enabled: false                    # Generate DEPLOYMENT.md tailored to this app.
     output: DEPLOYMENT.md            # Practical local/prod runbook for the generated application.

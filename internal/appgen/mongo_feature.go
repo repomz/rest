@@ -2,6 +2,7 @@ package appgen
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -45,6 +46,17 @@ func (MongoFeature) Generate(ctx Context) error {
 			output = "Makefile"
 		}
 		files[output] = mongoMakefileSource(ctx)
+	}
+	if ctx.Config.Rest.Features.InitDB.Enabled.Bool() {
+		output := ctx.Config.Rest.Features.InitDB.Output
+		if output == "" {
+			output = "init_db.sh"
+		}
+		source, err := generator.BuildInitDBSource(features)
+		if err != nil {
+			return err
+		}
+		files[output] = source
 	}
 	if ctx.Config.Rest.Features.Gitignore.Enabled.Bool() {
 		output := ctx.Config.Rest.Features.Gitignore.Output
@@ -182,7 +194,13 @@ func (MongoFeature) Generate(ctx Context) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(path, ".sh") {
+			mode = 0o755
+		} else if filepath.Base(path) == ".env" {
+			mode = 0o600
+		}
+		if err := os.WriteFile(target, []byte(content), mode); err != nil {
 			return err
 		}
 	}
@@ -254,6 +272,8 @@ func mongoFeatureOptions(ctx Context, models []generator.MongoModel) generator.F
 			Env:              ctx.Config.Rest.Features.Env.Enabled.Bool(),
 			EnvPath:          ctx.Config.Rest.Features.Env.Output,
 			GenerateLocalEnv: ctx.Config.Rest.Features.Env.GenerateLocalEnv,
+			InitDB:           ctx.Config.Rest.Features.InitDB.Enabled.Bool(),
+			InitDBPath:       ctx.Config.Rest.Features.InitDB.Output,
 			DeploymentGuide:  ctx.Config.Rest.Features.DeploymentGuide.Enabled.Bool(),
 			DeploymentPath:   ctx.Config.Rest.Features.DeploymentGuide.Output,
 			CI:               ctx.Config.Rest.Features.CI.Enabled.Bool(),
@@ -294,6 +314,8 @@ func mongoFeatureOptions(ctx Context, models []generator.MongoModel) generator.F
 			Models:   models,
 			URIEnv:   ctx.Config.Mongo.Connection.URIEnv,
 			Database: ctx.Config.Mongo.Connection.Database,
+			User:     ctx.Config.Mongo.Connection.UserName,
+			Password: ctx.Config.Mongo.Connection.UserPassword,
 		},
 	}
 }
@@ -395,7 +417,7 @@ func run() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(env(%q, "mongodb://localhost:27017")))
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(env(%q, %q)))
 	if err != nil {
 		return err
 	}
@@ -472,7 +494,7 @@ func mustDuration(value string) time.Duration {
 	}
 	return duration
 }
-`, zapImport, module, module, module, middlewareImport, loggingImport, metricsImport, mongoLoggerSetup(ctx), mongoTimeout(ctx), mongoURIEnv(ctx), ctx.Config.Mongo.Connection.Database, repoVars.String(), serviceVars.String(), serverFields.String(), mongoAuthBasicUsernameEnv(ctx), mongoAuthBasicPasswordEnv(ctx), mongoAuthBasicRealm(ctx), mongoQuotedSlice(mongoAuthBasicRoles(ctx)), mongoAuthJWTSecretEnv(ctx), mongoAuthJWTHeader(ctx), mongoAuthJWTScheme(ctx), mongoAuthJWTIssuer(ctx), mongoAuthJWTAudience(ctx), mongoAuthRoleClaim(ctx), mongoReadinessRouteSource(ctx, readinessPath), mongoMetricsRouteSource(ctx, metricsPath), handlerSetup, mongoHTTPAddr(ctx), defaultString(ctx.Config.Rest.HTTP.Timeouts.ReadHeader, "5s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Read, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Write, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Idle, "60s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Shutdown, "10s"), mongoShutdownLog(ctx), mongoStartupLog(ctx))
+`, zapImport, module, module, module, middlewareImport, loggingImport, metricsImport, mongoLoggerSetup(ctx), mongoTimeout(ctx), mongoURIEnv(ctx), mongoConnectionURI(ctx, "localhost:27017"), ctx.Config.Mongo.Connection.Database, repoVars.String(), serviceVars.String(), serverFields.String(), mongoAuthBasicUsernameEnv(ctx), mongoAuthBasicPasswordEnv(ctx), mongoAuthBasicRealm(ctx), mongoQuotedSlice(mongoAuthBasicRoles(ctx)), mongoAuthJWTSecretEnv(ctx), mongoAuthJWTHeader(ctx), mongoAuthJWTScheme(ctx), mongoAuthJWTIssuer(ctx), mongoAuthJWTAudience(ctx), mongoAuthRoleClaim(ctx), mongoReadinessRouteSource(ctx, readinessPath), mongoMetricsRouteSource(ctx, metricsPath), handlerSetup, mongoHTTPAddr(ctx), defaultString(ctx.Config.Rest.HTTP.Timeouts.ReadHeader, "5s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Read, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Write, "30s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Idle, "60s"), defaultString(ctx.Config.Rest.HTTP.Timeouts.Shutdown, "10s"), mongoShutdownLog(ctx), mongoStartupLog(ctx))
 }
 
 func mongoServerResponseSource() string {
@@ -538,19 +560,36 @@ func mongoMakefileSource(ctx Context) string {
 	if ctx.Config.Mongo != nil && ctx.Config.Mongo.Connection.URIEnv != "" {
 		uriEnv = ctx.Config.Mongo.Connection.URIEnv
 	}
+	dbVariable := ""
+	dbPhony := ""
+	dbTarget := ""
+	if ctx.Config.Rest.Features.InitDB.Enabled.Bool() {
+		dbScript := ctx.Config.Rest.Features.InitDB.Output
+		if dbScript == "" {
+			dbScript = "init_db.sh"
+		}
+		dbVariable = "DB_SCRIPT ?= " + dbScript + "\n"
+		dbPhony = " db"
+		dbTarget = `
+db:
+	@test -f $(DB_SCRIPT) || { echo "Error: $(DB_SCRIPT) is missing"; exit 1; }
+	@chmod +x $(DB_SCRIPT)
+	@./$(DB_SCRIPT)
+`
+	}
 	return fmt.Sprintf(`-include .env
 
 APP_NAME ?= app
 BUILD_DIR ?= ./bin
-HTTP_ADDR ?= %s
-%s ?= mongodb://localhost:27017
+%sHTTP_ADDR ?= %s
+%s ?= %s
 GOCACHE ?= $(CURDIR)/.cache/go-build
 GOLANGCI_LINT_VERSION ?= v1.64.8
 REST ?= rest
 
 export
 
-.PHONY: build rest-gen run test clean install-lint lint
+.PHONY: build rest-gen run test clean install-lint lint%s
 
 build:
 	@mkdir -p $(BUILD_DIR)
@@ -578,7 +617,8 @@ lint:
 
 clean:
 	rm -rf $(BUILD_DIR)
-`, httpAddr, uriEnv, uriEnv, uriEnv)
+%s
+`, dbVariable, httpAddr, uriEnv, mongoConnectionURI(ctx, "localhost:27017"), dbPhony, uriEnv, uriEnv, dbTarget)
 }
 
 func mongoMiddlewareSource(ctx Context) string {
@@ -1749,8 +1789,14 @@ func hasAllowedRole(userRoles []string, allowedRoles []string) bool {
 }
 
 func mongoEnvSource(ctx Context) string {
+	database := defaultMongoConnectionValue(ctx, "database")
+	user := defaultMongoConnectionValue(ctx, "user")
+	password := defaultMongoConnectionValue(ctx, "password")
 	lines := []string{
-		"MONGO_URI=mongodb://localhost:27017",
+		"MONGO_DB=" + database,
+		"MONGO_USER=" + user,
+		"MONGO_PASS=" + password,
+		mongoURIEnv(ctx) + "=" + mongoConnectionURI(ctx, "localhost:27017"),
 		"HTTP_ADDR=" + mongoHTTPAddr(ctx),
 	}
 	if authFeatures(ctx.Config).Enabled {
@@ -1776,12 +1822,13 @@ COPY . .
 RUN CGO_ENABLED=%s go build -o /out/%s ./cmd
 
 FROM %s
+RUN addgroup -S %s && adduser -S %s -G %s
 WORKDIR /app
 COPY --from=build /out/%s /app/%s
 EXPOSE %d
 USER %s
 ENTRYPOINT ["/app/%s"]
-`, ctx.Config.Rest.Docker.BuildImage, cgo, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.Docker.RuntimeImage, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.HTTP.Port, ctx.Config.Rest.Docker.User, ctx.Config.Rest.Docker.Binary)
+`, ctx.Config.Rest.Docker.BuildImage, cgo, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.Docker.RuntimeImage, ctx.Config.Rest.Docker.User, ctx.Config.Rest.Docker.User, ctx.Config.Rest.Docker.User, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.Docker.Binary, ctx.Config.Rest.HTTP.Port, ctx.Config.Rest.Docker.User, ctx.Config.Rest.Docker.Binary)
 }
 
 func mongoDockerignoreSource() string {
@@ -1795,18 +1842,23 @@ coverage.out
 
 func mongoDockerComposeSource(ctx Context) string {
 	port := ctx.Config.Rest.HTTP.Port
-	return fmt.Sprintf(`services:
+	database := defaultMongoConnectionValue(ctx, "database")
+	user := defaultMongoConnectionValue(ctx, "user")
+	password := defaultMongoConnectionValue(ctx, "password")
+	if user == "" {
+		return fmt.Sprintf(`services:
   app:
     build:
       context: .
       dockerfile: %s
     environment:
       HTTP_ADDR: 0.0.0.0:%d
-      MONGO_URI: mongodb://mongo:27017
+      %s: mongodb://mongo:27017
     ports:
       - "%d:%d"
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
 
   mongo:
     image: mongo:7
@@ -1814,10 +1866,109 @@ func mongoDockerComposeSource(ctx Context) string {
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'quit(db.runCommand({ ping: 1 }).ok ? 0 : 1)'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
 volumes:
   mongo_data:
-`, ctx.Config.Rest.Docker.Output, port, port, port)
+`, ctx.Config.Rest.Docker.Output, port, mongoURIEnv(ctx), port, port)
+	}
+	return fmt.Sprintf(`services:
+  app:
+    build:
+      context: .
+      dockerfile: %s
+    environment:
+      HTTP_ADDR: 0.0.0.0:%d
+      %s: %q
+    ports:
+      - "%d:%d"
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: rest_admin
+      MONGO_INITDB_ROOT_PASSWORD: rest_admin_password
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --username rest_admin --password rest_admin_password --authenticationDatabase admin --eval 'quit(db.runCommand({ ping: 1 }).ok ? 0 : 1)'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mongo-init:
+    image: mongo:7
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      MONGO_DB: %q
+      MONGO_USER: %q
+      MONGO_PASS: %q
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mongosh mongodb://rest_admin:rest_admin_password@mongo:27017/admin?authSource=admin --quiet --eval '
+          const target = db.getSiblingDB(process.env.MONGO_DB);
+          const roles = [{ role: "readWrite", db: process.env.MONGO_DB }];
+          if (target.getUser(process.env.MONGO_USER)) {
+            target.updateUser(process.env.MONGO_USER, { pwd: process.env.MONGO_PASS, roles });
+          } else {
+            target.createUser({ user: process.env.MONGO_USER, pwd: process.env.MONGO_PASS, roles });
+          }
+        '
+
+volumes:
+  mongo_data:
+`, ctx.Config.Rest.Docker.Output, port, mongoURIEnv(ctx), mongoConnectionURI(ctx, "mongo:27017"), port, port, database, user, password)
+}
+
+func mongoConnectionURI(ctx Context, host string) string {
+	database := defaultMongoConnectionValue(ctx, "database")
+	user := defaultMongoConnectionValue(ctx, "user")
+	password := defaultMongoConnectionValue(ctx, "password")
+	uri := &url.URL{Scheme: "mongodb", Host: host, Path: "/" + database}
+	if user != "" {
+		uri.User = url.UserPassword(user, password)
+		query := uri.Query()
+		query.Set("authSource", database)
+		uri.RawQuery = query.Encode()
+	}
+	return uri.String()
+}
+
+func defaultMongoConnectionValue(ctx Context, field string) string {
+	if ctx.Config.Mongo != nil {
+		switch field {
+		case "database":
+			if ctx.Config.Mongo.Connection.Database != "" {
+				return ctx.Config.Mongo.Connection.Database
+			}
+		case "user":
+			return ctx.Config.Mongo.Connection.UserName
+		case "password":
+			return ctx.Config.Mongo.Connection.UserPassword
+		}
+	}
+	switch field {
+	case "database":
+		return "app_db"
+	case "user":
+		return "app_user"
+	case "password":
+		return "app_password"
+	default:
+		return ""
+	}
 }
 
 func addMongoRoute(routes *strings.Builder, ctx Context, method, path, handler string) {

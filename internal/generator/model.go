@@ -198,6 +198,8 @@ type MongoFeatures struct {
 	Models   []MongoModel
 	URIEnv   string
 	Database string
+	User     string
+	Password string
 }
 
 type MongoModel struct {

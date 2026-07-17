@@ -331,60 +331,244 @@ if [[ -f .env ]]; then
 	set +a
 fi
 
+{{ if eq .Features.Build.Backend "mongo" }}
+: "${MONGO_DB:={{ defaultString .Features.Mongo.Database "app_db" }}}"
+: "${MONGO_USER:={{ defaultString .Features.Mongo.User "app_user" }}}"
+: "${MONGO_PASS:={{ defaultString .Features.Mongo.Password "app_password" }}}"
+: "${MONGO_RUNTIME:=docker}"
+: "${MONGO_IMAGE:=mongo:7}"
+: "${MONGO_HOST:=127.0.0.1}"
+: "${MONGO_PORT:=27017}"
+: "${MONGO_ADMIN_USER:=rest_admin}"
+: "${MONGO_ADMIN_PASS:=rest_admin_password}"
+: "${MONGO_ADMIN_URI:=mongodb://$MONGO_ADMIN_USER:$MONGO_ADMIN_PASS@$MONGO_HOST:$MONGO_PORT/admin?authSource=admin}"
+: "${MONGO_CONTAINER:=rest-${MONGO_DB//[^a-zA-Z0-9_.-]/-}-mongo}"
+: "${MONGO_VOLUME:=${MONGO_CONTAINER}-data}"
+
+configure_mongo_user_eval='
+const databaseName = process.env.REST_APP_DB;
+const username = process.env.REST_APP_USER;
+const password = process.env.REST_APP_PASS;
+const applicationDB = db.getSiblingDB(databaseName);
+const roles = [{ role: "readWrite", db: databaseName }];
+if (applicationDB.getUser(username)) {
+	applicationDB.updateUser(username, { pwd: password, roles: roles });
+} else {
+	applicationDB.createUser({ user: username, pwd: password, roles: roles });
+}
+applicationDB.runCommand({ ping: 1 });
+'
+
+if [[ "$MONGO_RUNTIME" == "docker" ]]; then
+	command -v docker >/dev/null 2>&1 || {
+		echo "Error: Docker is required for the default MongoDB setup." >&2
+		echo "Install/start Docker, or set MONGO_RUNTIME=local and MONGO_ADMIN_URI." >&2
+		exit 1
+	}
+	docker info >/dev/null 2>&1 || {
+		echo "Error: the Docker daemon is unavailable." >&2
+		exit 1
+	}
+
+	if docker container inspect "$MONGO_CONTAINER" >/dev/null 2>&1; then
+		docker start "$MONGO_CONTAINER" >/dev/null
+	else
+		echo "Starting MongoDB container '$MONGO_CONTAINER'..."
+		if ! docker run -d \
+			--name "$MONGO_CONTAINER" \
+			-p "$MONGO_PORT:27017" \
+			-v "$MONGO_VOLUME:/data/db" \
+			-e "MONGO_INITDB_ROOT_USERNAME=$MONGO_ADMIN_USER" \
+			-e "MONGO_INITDB_ROOT_PASSWORD=$MONGO_ADMIN_PASS" \
+			"$MONGO_IMAGE" >/dev/null; then
+			echo "Error: MongoDB container could not start. Check whether port $MONGO_PORT is already in use." >&2
+			exit 1
+		fi
+	fi
+
+	echo "Waiting for MongoDB..."
+	ready=0
+	for _ in {1..60}; do
+		if docker exec "$MONGO_CONTAINER" mongosh \
+			--quiet \
+			--username "$MONGO_ADMIN_USER" \
+			--password "$MONGO_ADMIN_PASS" \
+			--authenticationDatabase admin \
+			--eval 'quit(db.runCommand({ ping: 1 }).ok ? 0 : 1)' >/dev/null 2>&1; then
+			ready=1
+			break
+		fi
+		sleep 1
+	done
+	if [[ "$ready" != "1" ]]; then
+		echo "Error: MongoDB did not become ready within 60 seconds." >&2
+		docker logs "$MONGO_CONTAINER" >&2 || true
+		exit 1
+	fi
+
+	docker exec \
+		-e "REST_APP_DB=$MONGO_DB" \
+		-e "REST_APP_USER=$MONGO_USER" \
+		-e "REST_APP_PASS=$MONGO_PASS" \
+		"$MONGO_CONTAINER" mongosh \
+		--quiet \
+		--username "$MONGO_ADMIN_USER" \
+		--password "$MONGO_ADMIN_PASS" \
+		--authenticationDatabase admin \
+		--eval "$configure_mongo_user_eval" >/dev/null
+
+	docker exec \
+		-e "REST_APP_DB=$MONGO_DB" \
+		-e "REST_APP_USER=$MONGO_USER" \
+		-e "REST_APP_PASS=$MONGO_PASS" \
+		"$MONGO_CONTAINER" mongosh \
+		--quiet \
+		--username "$MONGO_USER" \
+		--password "$MONGO_PASS" \
+		--authenticationDatabase "$MONGO_DB" \
+		"$MONGO_DB" \
+		--eval 'quit(db.runCommand({ ping: 1 }).ok ? 0 : 1)' >/dev/null
+else
+	command -v mongosh >/dev/null 2>&1 || {
+		echo "Error: mongosh is required when MONGO_RUNTIME=local." >&2
+		exit 1
+	}
+	REST_APP_DB="$MONGO_DB" REST_APP_USER="$MONGO_USER" REST_APP_PASS="$MONGO_PASS" \
+		mongosh "$MONGO_ADMIN_URI" --quiet --eval "$configure_mongo_user_eval" >/dev/null
+	mongosh "mongodb://$MONGO_USER:$MONGO_PASS@$MONGO_HOST:$MONGO_PORT/$MONGO_DB?authSource=$MONGO_DB" \
+		--quiet --eval 'quit(db.runCommand({ ping: 1 }).ok ? 0 : 1)' >/dev/null
+fi
+
+echo "Done: MongoDB database '$MONGO_DB' is ready for user '$MONGO_USER'."
+echo "Application URI: mongodb://$MONGO_USER:***@$MONGO_HOST:$MONGO_PORT/$MONGO_DB?authSource=$MONGO_DB"
+{{ else }}
 : "${DB_NAME:={{ defaultString .Features.Build.DBName "app_db" }}}"
 : "${DB_USER:={{ defaultString .Features.Build.DBUser "app_user" }}}"
 : "${DB_PASS:={{ defaultString .Features.Build.DBPassword "app_password" }}}"
-: "${DB_ADMIN_DB:=postgres}"
-: "${USE_SUDO_POSTGRES:=0}"
+: "${DB_RUNTIME:=docker}"
+: "${DB_IMAGE:=postgres:17-alpine}"
+: "${DB_HOST:=127.0.0.1}"
+: "${DB_PORT:=5432}"
+: "${DB_ADMIN_USER:=rest_admin}"
+: "${DB_ADMIN_PASS:=rest_admin_password}"
+: "${DB_ADMIN_DSN:=postgres://$DB_ADMIN_USER:$DB_ADMIN_PASS@$DB_HOST:$DB_PORT/postgres?sslmode=disable}"
+: "${DB_DSN:=postgres://$DB_USER:$DB_PASS@$DB_HOST:$DB_PORT/$DB_NAME?{{ defaultString .Features.Build.DBOptions "sslmode=disable" }}}"
+: "${DB_CONTAINER:=rest-${DB_NAME//[^a-zA-Z0-9_.-]/-}-postgres}"
+: "${DB_VOLUME:=${DB_CONTAINER}-data}"
+: "${MIGRATIONS_DIR:=./{{ defaultString .Features.Build.MigrationsPath "internal/sql/migrations" }}}"
 
-if [[ "$USE_SUDO_POSTGRES" == "1" ]]; then
-	PSQL_ADMIN=(sudo -u postgres psql -d "$DB_ADMIN_DB")
-else
-	PSQL_ADMIN=(psql -d "$DB_ADMIN_DB")
+if [[ ! "$DB_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || [[ ! "$DB_USER" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+	echo "Error: DB_NAME and DB_USER must contain only letters, digits, and underscores and may not start with a digit." >&2
+	exit 1
 fi
 
 sql_literal() {
 	printf "'%s'" "${1//\'/\'\'}"
 }
 
-echo "Configuring database '$DB_NAME' and user '$DB_USER'..."
+if [[ "$DB_RUNTIME" == "docker" ]]; then
+	command -v docker >/dev/null 2>&1 || {
+		echo "Error: Docker is required for the default PostgreSQL setup." >&2
+		echo "Install/start Docker, or set DB_RUNTIME=local and DB_ADMIN_DSN." >&2
+		exit 1
+	}
+	docker info >/dev/null 2>&1 || {
+		echo "Error: the Docker daemon is unavailable." >&2
+		exit 1
+	}
 
+	if docker container inspect "$DB_CONTAINER" >/dev/null 2>&1; then
+		docker start "$DB_CONTAINER" >/dev/null
+	else
+		echo "Starting PostgreSQL container '$DB_CONTAINER'..."
+		if ! docker run -d \
+			--name "$DB_CONTAINER" \
+			-p "$DB_PORT:5432" \
+			-v "$DB_VOLUME:/var/lib/postgresql/data" \
+			-e "POSTGRES_DB=postgres" \
+			-e "POSTGRES_USER=$DB_ADMIN_USER" \
+			-e "POSTGRES_PASSWORD=$DB_ADMIN_PASS" \
+			"$DB_IMAGE" >/dev/null; then
+			echo "Error: PostgreSQL container could not start. Check whether port $DB_PORT is already in use." >&2
+			exit 1
+		fi
+	fi
+
+	echo "Waiting for PostgreSQL..."
+	ready=0
+	for _ in {1..60}; do
+		if docker exec -e "PGPASSWORD=$DB_ADMIN_PASS" "$DB_CONTAINER" \
+			pg_isready -U "$DB_ADMIN_USER" -d postgres >/dev/null 2>&1; then
+			ready=1
+			break
+		fi
+		sleep 1
+	done
+	if [[ "$ready" != "1" ]]; then
+		echo "Error: PostgreSQL did not become ready within 60 seconds." >&2
+		docker logs "$DB_CONTAINER" >&2 || true
+		exit 1
+	fi
+
+	PSQL_ADMIN=(docker exec -i -e "PGPASSWORD=$DB_ADMIN_PASS" "$DB_CONTAINER" psql -U "$DB_ADMIN_USER" -d postgres)
+else
+	command -v psql >/dev/null 2>&1 || {
+		echo "Error: psql is required when DB_RUNTIME=local." >&2
+		exit 1
+	}
+	PSQL_ADMIN=(psql "$DB_ADMIN_DSN")
+fi
+
+echo "Configuring PostgreSQL database '$DB_NAME' and user '$DB_USER'..."
 if [[ $("${PSQL_ADMIN[@]}" -tAc "SELECT 1 FROM pg_roles WHERE rolname = $(sql_literal "$DB_USER")" | tr -d '[:space:]') != "1" ]]; then
 	"${PSQL_ADMIN[@]}" -v ON_ERROR_STOP=1 -c "CREATE USER \"$DB_USER\" WITH ENCRYPTED PASSWORD $(sql_literal "$DB_PASS");"
-	echo "User '$DB_USER' created."
 else
 	"${PSQL_ADMIN[@]}" -v ON_ERROR_STOP=1 -c "ALTER USER \"$DB_USER\" WITH ENCRYPTED PASSWORD $(sql_literal "$DB_PASS");"
-	echo "User '$DB_USER' already exists; password updated."
 fi
 
 if [[ $("${PSQL_ADMIN[@]}" -tAc "SELECT 1 FROM pg_database WHERE datname = $(sql_literal "$DB_NAME")" | tr -d '[:space:]') != "1" ]]; then
 	"${PSQL_ADMIN[@]}" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$DB_NAME\" OWNER \"$DB_USER\";"
-	echo "Database '$DB_NAME' created."
+fi
+"${PSQL_ADMIN[@]}" -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE \"$DB_NAME\" TO \"$DB_USER\";"
+"${PSQL_ADMIN[@]}" -v ON_ERROR_STOP=1 -c "ALTER DATABASE \"$DB_NAME\" OWNER TO \"$DB_USER\";"
+
+if [[ "$DB_RUNTIME" == "docker" ]]; then
+	PSQL_APP=(docker exec -i -e "PGPASSWORD=$DB_PASS" "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME")
 else
-	echo "Database '$DB_NAME' already exists."
+	PSQL_APP=(psql "$DB_DSN")
 fi
 
-"${PSQL_ADMIN[@]}" -v ON_ERROR_STOP=1 <<SQL
-GRANT CONNECT ON DATABASE "$DB_NAME" TO "$DB_USER";
-ALTER DATABASE "$DB_NAME" OWNER TO "$DB_USER";
-SQL
-
-if [[ "$USE_SUDO_POSTGRES" == "1" ]]; then
-	PSQL_TARGET=(sudo -u postgres psql -d "$DB_NAME")
-else
-	PSQL_TARGET=(psql -d "$DB_NAME")
-fi
-
-"${PSQL_TARGET[@]}" -v ON_ERROR_STOP=1 <<SQL
+"${PSQL_APP[@]}" -v ON_ERROR_STOP=1 <<SQL
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO "$DB_USER";
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "$DB_USER";
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "$DB_USER";
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "$DB_USER";
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "$DB_USER";
+CREATE TABLE IF NOT EXISTS public.rest_schema_migrations (
+	version text PRIMARY KEY,
+	applied_at timestamptz NOT NULL DEFAULT now()
+);
 SQL
 
-echo "Done: database '$DB_NAME' is available to user '$DB_USER'."
+if [[ -d "$MIGRATIONS_DIR" ]]; then
+	shopt -s nullglob
+	for migration in "$MIGRATIONS_DIR"/*.sql; do
+		version=$(basename "$migration")
+		applied=$("${PSQL_APP[@]}" -tAc "SELECT 1 FROM public.rest_schema_migrations WHERE version = $(sql_literal "$version")" | tr -d '[:space:]')
+		if [[ "$applied" == "1" ]]; then
+			continue
+		fi
+		echo "Applying migration '$version'..."
+		{
+			printf 'BEGIN;\n'
+			awk '/^--[[:space:]]+\+goose[[:space:]]+Up/{up=1; next} /^--[[:space:]]+\+goose[[:space:]]+Down/{up=0} up' "$migration"
+			printf '\nINSERT INTO public.rest_schema_migrations (version) VALUES (%s);\n' "$(sql_literal "$version")"
+			printf 'COMMIT;\n'
+		} | "${PSQL_APP[@]}" -v ON_ERROR_STOP=1
+	done
+fi
+
+"${PSQL_APP[@]}" -tAc "SELECT 1" >/dev/null
+echo "Done: PostgreSQL database '$DB_NAME' is ready for user '$DB_USER'."
+echo "Application DSN: postgres://$DB_USER:***@$DB_HOST:$DB_PORT/$DB_NAME?{{ defaultString .Features.Build.DBOptions "sslmode=disable" }}"
+{{ end }}
 `
 
 const ciWorkflowTemplate = `name: CI

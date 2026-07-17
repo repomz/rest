@@ -235,9 +235,11 @@ type Mongo struct {
 }
 
 type MongoConnection struct {
-	URIEnv   string `yaml:"uri_env"`
-	Database string `yaml:"database"`
-	Timeout  string `yaml:"timeout"`
+	URIEnv       string `yaml:"uri_env"`
+	Database     string `yaml:"database"`
+	UserName     string `yaml:"user_name"`
+	UserPassword string `yaml:"user_password"`
+	Timeout      string `yaml:"timeout"`
 }
 
 type MongoSettings struct {

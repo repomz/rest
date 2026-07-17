@@ -117,6 +117,9 @@ func validateConfig(bundle config.Bundle) error {
 	if bundle.Rest.SQL.Bool() && bundle.Rest.Mongo.Bool() {
 		return fmt.Errorf("sql and mongo cannot both be enabled; choose one backend in rest.yaml")
 	}
+	if bundle.Rest.Features.InitDB.Enabled.Bool() && !bundle.Rest.SQL.Bool() && !bundle.Rest.Mongo.Bool() {
+		return fmt.Errorf("features.init_db requires sql or mongo to be enabled")
+	}
 	if framework := strings.ToLower(bundle.Rest.HTTP.Framework); framework != "" && framework != "std" {
 		return fmt.Errorf("unsupported HTTP framework %q", bundle.Rest.HTTP.Framework)
 	}
@@ -264,9 +267,6 @@ func validateConfig(bundle config.Bundle) error {
 			return fmt.Errorf("%s is required when enabled", name)
 		}
 	}
-	if bundle.Rest.Features.InitDB.Enabled.Bool() && !bundle.Rest.SQL.Bool() {
-		return fmt.Errorf("features.init_db is supported only for SQL apps")
-	}
 	if bundle.SQL != nil {
 		if database := strings.ToLower(bundle.SQL.Database); database != "" && database != "postgresql" && database != "postgres" {
 			return fmt.Errorf("unsupported SQL database %q", bundle.SQL.Database)
@@ -302,6 +302,25 @@ func validateConfig(bundle config.Bundle) error {
 		}
 		if bundle.Mongo.Mongo.ModelsPath == "" {
 			return fmt.Errorf("mongo.models_path is required")
+		}
+		for name, value := range map[string]string{
+			"mongo.connection.uri_env":  bundle.Mongo.Connection.URIEnv,
+			"mongo.connection.database": bundle.Mongo.Connection.Database,
+		} {
+			if value == "" {
+				return fmt.Errorf("%s is required", name)
+			}
+		}
+		if bundle.Rest.Mongo.Bool() && bundle.Rest.Features.InitDB.Enabled.Bool() {
+			if bundle.Mongo.Connection.UserName == "" {
+				return fmt.Errorf("mongo.connection.user_name is required when features.init_db is enabled")
+			}
+			if bundle.Mongo.Connection.UserPassword == "" {
+				return fmt.Errorf("mongo.connection.user_password is required when features.init_db is enabled")
+			}
+		}
+		if bundle.Rest.Mongo.Bool() && (bundle.Mongo.Connection.UserName == "") != (bundle.Mongo.Connection.UserPassword == "") {
+			return fmt.Errorf("mongo.connection.user_name and user_password must either both be set or both be empty")
 		}
 		if bundle.Mongo.Connection.Timeout != "" {
 			if _, err := time.ParseDuration(bundle.Mongo.Connection.Timeout); err != nil {

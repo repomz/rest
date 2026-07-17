@@ -2,10 +2,71 @@ package generator
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestInitDBScriptsAreValidAndPrepareSelectedBackend(t *testing.T) {
+	tests := []struct {
+		name     string
+		features FeatureOptions
+		contains []string
+	}{
+		{
+			name: "postgres",
+			features: FeatureOptions{
+				Build: BuildFeatures{
+					Backend: "sql", DBName: "myapp_db", DBUser: "app_user", DBPassword: "app_password",
+					DBOptions: "sslmode=disable", MigrationsPath: "internal/sql/migrations",
+				},
+			},
+			contains: []string{
+				`DB_RUNTIME:=docker`,
+				`CREATE DATABASE`,
+				"rest_schema_migrations",
+				`Applying migration '$version'`,
+				`"${PSQL_APP[@]}" -tAc "SELECT 1"`,
+			},
+		},
+		{
+			name: "mongo",
+			features: FeatureOptions{
+				Build: BuildFeatures{Backend: "mongo"},
+				Mongo: MongoFeatures{Database: "myapp_db", User: "app_user", Password: "app_password"},
+			},
+			contains: []string{
+				`MONGO_RUNTIME:=docker`,
+				"applicationDB.createUser",
+				`role: "readWrite"`,
+				`--authenticationDatabase "$MONGO_DB"`,
+				`MongoDB database '$MONGO_DB' is ready`,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source, err := BuildInitDBSource(tt.features)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, expected := range tt.contains {
+				if !strings.Contains(source, expected) {
+					t.Fatalf("init_db.sh missing %q:\n%s", expected, source)
+				}
+			}
+			path := filepath.Join(t.TempDir(), "init_db.sh")
+			if err := os.WriteFile(path, []byte(source), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if output, err := exec.Command("bash", "-n", path).CombinedOutput(); err != nil {
+				t.Fatalf("bash -n failed: %v\n%s", err, output)
+			}
+		})
+	}
+}
 
 func TestGeneratedGitignoreSectionCanBeRemovedWithoutTouchingCustomContent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".gitignore")

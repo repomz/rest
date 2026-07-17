@@ -30,6 +30,54 @@ func TestValidateConfigRejectsSQLAndMongoTogether(t *testing.T) {
 	}
 }
 
+func TestValidateConfigRequiresBackendForDatabaseInitializer(t *testing.T) {
+	bundle := minimalBundle()
+	bundle.Rest.Features.InitDB = config.GeneratedFile{Enabled: config.Enabled(true), Output: "init_db.sh"}
+
+	err := validateConfig(bundle)
+	if err == nil || !strings.Contains(err.Error(), "features.init_db requires sql or mongo") {
+		t.Fatalf("expected init_db backend validation error, got %v", err)
+	}
+}
+
+func TestValidateConfigDoesNotRequireInactiveMongoCredentials(t *testing.T) {
+	bundle := minimalBundle()
+	bundle.Rest.SQL = config.Enabled(true)
+	bundle.Rest.Features.InitDB = config.GeneratedFile{Enabled: config.Enabled(true), Output: "init_db.sh"}
+	bundle.SQL = &config.SQL{
+		Database: "postgresql",
+		Engine:   "sqlc",
+		Connection: config.DBConnection{
+			DBName:       "myapp_db",
+			UserName:     "app_user",
+			UserPassword: "app_password",
+		},
+	}
+	bundle.Mongo = &config.Mongo{
+		Engine: "mongo-go-driver",
+		Connection: config.MongoConnection{
+			URIEnv:   "MONGO_URI",
+			Database: "myapp_db",
+		},
+		Mongo: config.MongoSettings{ModelsPath: "rest_mongo"},
+	}
+
+	if err := validateConfig(bundle); err != nil {
+		t.Fatalf("inactive Mongo credentials must not block SQL init_db: %v", err)
+	}
+}
+
+func TestMongoConnectionURIPreservesLegacyUnauthenticatedConfig(t *testing.T) {
+	ctx := Context{Config: config.Bundle{Mongo: &config.Mongo{
+		Connection: config.MongoConnection{Database: "legacy_db"},
+	}}}
+
+	got := mongoConnectionURI(ctx, "localhost:27017")
+	if got != "mongodb://localhost:27017/legacy_db" {
+		t.Fatalf("legacy Mongo URI = %q", got)
+	}
+}
+
 func TestValidateConfigRequiresAtLeastOneMetricCollector(t *testing.T) {
 	bundle := minimalBundle()
 	bundle.Rest.Observability.Metrics.Enabled = config.Enabled(true)
