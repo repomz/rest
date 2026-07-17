@@ -29,7 +29,7 @@ Required:
 
 Required for SQL projects:
 
-- [`sqlc`](https://github.com/sqlc-dev/sqlc): `go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0`.
+- [`sqlc`](https://github.com/sqlc-dev/sqlc): compatible `v1.30.0`, installed and verified automatically by `rest`.
 
 Required for running generated applications:
 
@@ -54,6 +54,11 @@ Verify the installation:
 ```bash
 rest version
 ```
+
+On the first `rest init`, the CLI automatically installs the compatible SQLC
+version into your Go binary directory. `rest gen` verifies the version again
+before SQL generation, and `rest update` keeps the dependency bootstrap in the
+update workflow.
 
 Install a specific release:
 
@@ -128,10 +133,10 @@ sqlc generate -f <sqlc_path>
 go mod tidy
 ```
 
-Install SQLC with:
+Normally no separate SQLC installation is required. To repair it manually:
 
 ```bash
-go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0
+go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
 ```
 
 To run SQLC manually, set `auto_sqlc: disable` in `rest_config/rest.yaml`, execute `sqlc generate -f <sqlc_path>`, and then run `rest gen`.

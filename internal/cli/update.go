@@ -47,10 +47,10 @@ func runUpdate(args []string) error {
 	}
 	if !result.Updated {
 		fmt.Fprintf(os.Stdout, "rest is already up to date (%s)\n", result.Version)
-		return nil
+		return bootstrapSQLC(5*time.Minute, os.Stdout)
 	}
 	printUpdateResult(os.Stdout, result)
-	return nil
+	return bootstrapSQLC(5*time.Minute, os.Stdout)
 }
 
 func printUpdateCheckResult(w io.Writer, result selfupdate.Result) {

@@ -33,6 +33,9 @@ func runInit(args []string) error {
 	}
 	maybePrintInitWelcome()
 	maybeOfferInitUpdate()
+	if err := bootstrapSQLCForInit(); err != nil {
+		return err
+	}
 	if err := confirmInitOverlay("."); err != nil {
 		return err
 	}

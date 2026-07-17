@@ -168,7 +168,7 @@ jobs:
           cache: true
 
       - name: Install sqlc
-        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0
+        run: make install-sqlc
 
       - name: Run live runtime E2E
         env:

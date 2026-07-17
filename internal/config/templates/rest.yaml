@@ -72,7 +72,7 @@ mongo: disable                       # enable generates a MongoDB application fr
 # ------------------------------------------------------------------------------
 # Detailed SQL settings live in rest_config/rest_sqlc.yaml.
 auto_sqlc: enable                    # enable runs: sqlc generate -f <sqlc_path> during rest gen.
-                                      # Requires sqlc: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0.
+                                      # rest installs the compatible sqlc v1.30.0 automatically; disable to run it manually.
                                       # disable means you run sqlc generate manually before rest gen.
 
 # ------------------------------------------------------------------------------

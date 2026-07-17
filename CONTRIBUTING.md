@@ -11,10 +11,10 @@ make setup
 make check
 ```
 
-For SQL-related generator work, install SQLC:
+`make setup` installs the compatible SQLC version and configures repository hooks:
 
 ```bash
-go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0
+make setup
 ```
 
 Some optional checks require extra tools:

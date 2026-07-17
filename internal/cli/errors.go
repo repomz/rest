@@ -3,6 +3,8 @@ package cli
 import (
 	"errors"
 	"strings"
+
+	"github.com/repomz/rest/internal/toolchain"
 )
 
 func FormatError(err error) string {
@@ -51,7 +53,7 @@ func errorHints(message string) []string {
 		add("Remove or rename unsupported config fields; compare the file with the current generated template.")
 	}
 	if strings.Contains(lower, "sqlc") && (strings.Contains(lower, "executable file not found") || strings.Contains(lower, "not installed")) {
-		add("Install sqlc with `go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0` and make sure it is in PATH.")
+		add("Run `rest init` to install compatible sqlc automatically, or use `" + toolchain.SQLCInstallCommand() + "`.")
 	}
 	if strings.Contains(lower, "sqlc config") || strings.Contains(lower, "rest_sqlc.yaml") {
 		add("Check `rest_config/rest_sqlc.yaml` and paths inside `rest_config/rest_sqlc/rest_sqlc.yaml`.")

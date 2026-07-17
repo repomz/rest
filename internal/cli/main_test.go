@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,11 +11,31 @@ import (
 
 	"github.com/repomz/rest/internal/appgen"
 	"github.com/repomz/rest/internal/selfupdate"
+	"github.com/repomz/rest/internal/toolchain"
 )
 
 func TestRunRejectsLegacyGenerateCommand(t *testing.T) {
 	if err := run([]string{"generate"}); err == nil {
 		t.Fatal("expected legacy generate command to be rejected")
+	}
+}
+
+func TestRunInitBootstrapsCompatibleSQLC(t *testing.T) {
+	projectDir := t.TempDir()
+	withWorkingDir(t, projectDir)
+	previous := ensureSQLCDependency
+	t.Cleanup(func() { ensureSQLCDependency = previous })
+	calls := 0
+	ensureSQLCDependency = func(context.Context, io.Writer) (toolchain.SQLCResult, error) {
+		calls++
+		return toolchain.SQLCResult{Path: "/test/sqlc", Version: toolchain.CompatibleSQLCVersion}, nil
+	}
+
+	if err := runInit([]string{"--example", "mongo"}); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("sqlc bootstrap calls = %d, want 1", calls)
 	}
 }
 
@@ -25,7 +47,7 @@ func TestFormatErrorAddsUsefulHints(t *testing.T) {
 
 	got = FormatError(&execError{text: `sqlc: executable file not found`})
 	for _, want := range []string{
-		"Install sqlc",
+		"rest init",
 		"rest doctor",
 	} {
 		if !strings.Contains(got, want) {

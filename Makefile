@@ -4,8 +4,9 @@ GO ?= go
 VERSION ?=
 GOIMPORTS ?= $(GO) run golang.org/x/tools/cmd/goimports
 GOVULNCHECK ?= $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.5.0
+SQLC_VERSION ?= v1.30.0
 
-.PHONY: build-rest test race vuln generated-examples golden docker-smoke runtime-e2e format format-check check ci-check benchmark clean setup hooks changelog release publish-release
+.PHONY: build-rest test race vuln generated-examples golden docker-smoke runtime-e2e format format-check check ci-check benchmark clean setup install-sqlc hooks changelog release publish-release
 
 build-rest:
 	@mkdir -p $(BUILD_DIR)
@@ -48,8 +49,11 @@ check:
 
 ci-check: check race vuln generated-examples golden
 
-setup: hooks
+setup: hooks install-sqlc
 	@echo "Development tools are configured."
+
+install-sqlc:
+	$(GO) install github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 
 hooks:
 	git config core.hooksPath .githooks

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/repomz/rest/internal/config"
+	"github.com/repomz/rest/internal/toolchain"
 	"gopkg.in/yaml.v3"
 )
 
@@ -213,10 +214,17 @@ func (d *doctorRunner) checkSQL() {
 		}
 	}
 	if d.bundle.Rest.AutoSQLC.Bool() {
-		if _, err := exec.LookPath("sqlc"); err != nil {
-			d.err("auto_sqlc is enabled but sqlc is not installed", "Install it with: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0")
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		sqlc, err := toolchain.FindSQLC(ctx)
+		cancel()
+		if err != nil {
+			d.err("auto_sqlc is enabled but sqlc is not installed", "Run `rest init` or install it with: "+toolchain.SQLCInstallCommand())
 		} else {
-			d.ok("sqlc binary is available")
+			if sqlc.Version != toolchain.CompatibleSQLCVersion {
+				d.warn("sqlc "+sqlc.Version+" is installed; rest uses "+toolchain.CompatibleSQLCVersion, "Run `rest gen` to install the compatible version automatically.")
+			} else {
+				d.ok("sqlc " + sqlc.Version + " is available")
+			}
 		}
 	}
 	dbDir := filepath.Join(d.projectDir, "internal", "app", "db")

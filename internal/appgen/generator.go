@@ -1,6 +1,7 @@
 package appgen
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/repomz/rest/internal/config"
 	"github.com/repomz/rest/internal/generator"
+	"github.com/repomz/rest/internal/toolchain"
 	"gopkg.in/yaml.v3"
 )
 
@@ -803,11 +805,17 @@ func runAutoSQLC(ctx Context) error {
 		return nil
 	}
 	sqlcPath := resolveSQLCPath(ctx.ConfigDir, ctx.Config.SQL.SQLC.Path)
-	cmd := exec.Command("sqlc", "generate", "-f", sqlcPath)
+	installCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	sqlc, err := toolchain.EnsureSQLC(installCtx, os.Stdout)
+	if err != nil {
+		return fmt.Errorf("prepare sqlc: %w; retry manually with: %s", err, toolchain.SQLCInstallCommand())
+	}
+	cmd := exec.Command(sqlc.Path, "generate", "-f", sqlcPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("run sqlc generate -f %s: %w; install sqlc with: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0", sqlcPath, err)
+		return fmt.Errorf("run sqlc generate -f %s with %s: %w", sqlcPath, toolchain.CompatibleSQLCVersion, err)
 	}
 	return nil
 }
