@@ -95,17 +95,30 @@ func TestBuildGitignoreSourceIgnoresRuntimeAndGeneratorOnlyFiles(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"bin/",
+		"build/",
+		"/app",
+		"/rest",
+		"*.exe",
 		"coverage.out",
+		"*.coverprofile",
+		"*.pprof",
+		"go.work",
 		".env",
 		"!.env.example",
 		"logs/",
 		"docker-compose.override.yml",
+		"compose.override.yml",
 		".rest/",
+		".rest-generator/",
 		"rest_config/",
 		"rest_sqlc/",
 		"rest_sqlc_example/",
+		"rest_mongo/",
+		"auth_rest.yaml",
+		"mongo_rest.yaml",
 		"docs/RUNBOOK.md",
 		".DS_Store",
+		"Thumbs.db",
 	} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf(".gitignore does not contain %q:\n%s", expected, content)

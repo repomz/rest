@@ -387,41 +387,85 @@ echo "PostgreSQL migrations are up to date."
 `
 
 const gitignoreTemplate = `# rest:begin
-# Build and test output
+# Go build output and local binaries
 bin/
 dist/
+build/
+out/
 .cache/
-coverage/
-coverage.out
-coverage.html
+/app
+/rest
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.a
 *.test
 *.out
 
-# Local runtime files and secrets
+# Test, coverage, benchmark, and profiling output
+coverage/
+coverage.*
+coverage.out
+coverage.html
+*.cover
+*.coverprofile
+*.prof
+*.pprof
+*.trace
+
+# Local Go workspace
+go.work
+go.work.sum
+
+# Local runtime configuration and secrets
 .env
 .env.*
 !.env.example
 *.local
 
-# Logs and temporary files
+# Logs, process files, and temporary data
 logs/
 *.log
+*.pid
+*.pid.lock
 tmp/
+temp/
 
-# Docker/local overrides
+# Docker and local orchestration overrides
 docker-compose.override.yml
+docker-compose.*.override.yml
+compose.override.yml
+compose.*.override.yml
 
 # rest generator workspace files not required by the generated runtime app
-.rest/
-rest_config/
-rest_sqlc/
-rest_sqlc_example/
-{{ defaultString .Features.Build.DeploymentPath "DEPLOYMENT.md" }}
+/.rest/
+/.rest-generator/
+/rest_config/
+/rest_sqlc/
+/rest_sqlc_example/
+/rest_mongo/
+/auth_rest.yaml
+/mongo_rest.yaml
+/rest.yaml
+/rest_sqlc.yaml
+/{{ defaultString .Features.Build.DeploymentPath "DEPLOYMENT.md" }}
 
-# OS/editor noise
-.DS_Store
+# IDE and editor state
 .idea/
 .vscode/
+.fleet/
+.zed/
+*.swp
+*.swo
+*~
+
+# OS metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
 # rest:end
 `
 

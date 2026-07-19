@@ -179,7 +179,7 @@ features:
     enabled: false                    # Generate Makefile with common local commands.
     output: Makefile                  # Makefile path.
   gitignore:
-    enabled: false                    # Generate or update .gitignore.
+    enabled: true                     # Generate a standard .gitignore and hide local rest generator workspace files.
     output: .gitignore                # .gitignore path.
     append: true                     # true preserves user text outside the managed block.
   readme:

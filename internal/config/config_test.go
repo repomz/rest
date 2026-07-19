@@ -297,6 +297,10 @@ func TestRestConfigUsesOnlySupportedOptionalFeatures(t *testing.T) {
 			t.Fatalf("feature %q must define output", key)
 		}
 	}
+	gitignore := requireMapValue(t, features, "gitignore")
+	if gitignore["enabled"] != true {
+		t.Fatal("generated projects must enable the standard .gitignore by default")
+	}
 	docker := requireMapValue(t, rest, "docker")
 	if docker["enabled"] != true || docker["output"] == "" {
 		t.Fatal("Docker contract must define enabled and output")

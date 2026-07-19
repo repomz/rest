@@ -17,6 +17,7 @@ func TestE2EInitSQLCGenerateAndTestGeneratedProject(t *testing.T) {
 	projectDir := generateE2ESQLProject(t)
 	assertDoctorHealthy(t)
 	for _, path := range []string{
+		".gitignore",
 		"cmd/main.go",
 		"internal/app/domain/item.go",
 		"internal/app/repository/pgrepo/item_repo.go",
@@ -28,6 +29,11 @@ func TestE2EInitSQLCGenerateAndTestGeneratedProject(t *testing.T) {
 			t.Fatalf("expected generated file %s: %v", path, err)
 		}
 	}
+	assertGeneratedGitignore(t, projectDir, []string{
+		".rest/generation.json",
+		"rest_config/rest.yaml",
+		"rest_sqlc/rest_sqlc.yaml",
+	})
 	runGeneratedGoTest(t, projectDir)
 }
 
@@ -133,6 +139,7 @@ func TestE2EInitMongoExampleGenerateAndTestGeneratedProject(t *testing.T) {
 	projectDir := generateE2EMongoProject(t)
 	assertDoctorHealthy(t)
 	for _, path := range []string{
+		".gitignore",
 		"cmd/main.go",
 		"internal/app/domain/document.go",
 		"internal/app/repository/mongorepo/item_repo.go",
@@ -171,6 +178,11 @@ func TestE2EInitMongoExampleGenerateAndTestGeneratedProject(t *testing.T) {
 			t.Fatalf("Mongo example swagger missing %q:\n%s", expected, swagger)
 		}
 	}
+	assertGeneratedGitignore(t, projectDir, []string{
+		".rest/generation.json",
+		"rest_config/rest.yaml",
+		"rest_config/rest_mongo/item.yaml",
+	})
 	runGeneratedGoTest(t, projectDir)
 }
 
@@ -351,7 +363,6 @@ func TestE2EMongoGeneratesProjectSupportFilesWhenEnabled(t *testing.T) {
 	}
 	patchFileForE2E(t, filepath.Join(projectDir, "rest_config", "rest.yaml"), map[string]string{
 		"  makefile:\n    enabled: false":     "  makefile:\n    enabled: true",
-		"  gitignore:\n    enabled: false":    "  gitignore:\n    enabled: true",
 		"  readme:\n    enabled: false":       "  readme:\n    enabled: true",
 		"  architecture:\n    enabled: false": "  architecture:\n    enabled: true",
 		"    generate_local_env: false":       "    generate_local_env: true",
@@ -659,6 +670,46 @@ func writeE2EFile(t *testing.T, path, content string) {
 	}
 }
 
+func assertGeneratedGitignore(t *testing.T, projectDir string, restWorkspacePaths []string) {
+	t.Helper()
+	initCommand := exec.Command("git", "init", "--quiet")
+	initCommand.Dir = projectDir
+	if output, err := initCommand.CombinedOutput(); err != nil {
+		t.Fatalf("initialize temporary Git repository: %v\n%s", err, output)
+	}
+
+	ignored := append([]string{
+		"bin/app",
+		"coverage.out",
+		"profile.pprof",
+		".env",
+		"docker-compose.override.yml",
+		".idea/workspace.xml",
+		".DS_Store",
+	}, restWorkspacePaths...)
+	for _, path := range ignored {
+		command := exec.Command("git", "check-ignore", "--quiet", "--no-index", path)
+		command.Dir = projectDir
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("generated .gitignore must ignore %q: %v\n%s", path, err, output)
+		}
+	}
+
+	for _, path := range []string{
+		"cmd/main.go",
+		"internal/app/domain/document.go",
+		"go.mod",
+		"Dockerfile",
+		".env.example",
+	} {
+		command := exec.Command("git", "check-ignore", "--quiet", "--no-index", path)
+		command.Dir = projectDir
+		if err := command.Run(); err == nil {
+			t.Fatalf("generated .gitignore must not ignore application source %q", path)
+		}
+	}
+}
+
 func withStdin(t *testing.T, input string, fn func()) {
 	t.Helper()
 	previous := os.Stdin
@@ -741,7 +792,7 @@ func generatedSnapshot(t *testing.T, projectDir string) string {
 	for _, root := range []string{"cmd", "internal", "docs", "curl"} {
 		walkSnapshotRoot(t, projectDir, root, &lines)
 	}
-	for _, path := range []string{"Dockerfile", ".dockerignore", ".env.example", "Makefile", "go.mod", "go.sum"} {
+	for _, path := range []string{"Dockerfile", ".dockerignore", ".gitignore", ".env.example", "Makefile", "go.mod", "go.sum"} {
 		appendSnapshotFile(t, projectDir, path, &lines)
 	}
 	sort.Strings(lines)
