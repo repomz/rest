@@ -3,6 +3,14 @@
 All notable changes to `rest` are generated from
 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## [v0.1.3] - 2026-07-19
+
+
+### Bug fixes
+
+
+- **generator:** Add standard gitignore for generated projects (`bc4e478`)
+
 ## [v0.1.2] - 2026-07-17
 
 
